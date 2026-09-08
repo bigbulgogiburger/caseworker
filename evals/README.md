@@ -16,4 +16,6 @@ claude plugin eval . --case powershell-commit-blocked      # 케이스 하나
 claude plugin eval . --ablation with-without --json evals/results/run.json   # 전 케이스 + 플러그인 없는 대조군
 ```
 
+⚠ `claude plugin eval` 은 2026-09 현재 **early access**(계정별 활성화)다. 이 저장소의 케이스는 형식만 CLI 내장 레퍼런스(`claude plugin eval --help`, v2.1.263)에 맞췄고 **실행 검증은 못 했다** — 실행하면 `plugin eval is currently in early access` 로 exit 1 이 난다. 활성화되면 먼저 `--case powershell-commit-blocked` 하나로 형식을 확인할 것. 그 전까지 게이트 실효 증명은 `setup.mjs inject`(위반 주입 5종)와 `scripts/__tests__/*.test.mjs` 가 담당한다.
+
 기본 `--ablation with-without` 은 플러그인 없는 대조군을 같이 돌려 점수 차를 낸다 — "플러그인이 없어도 모델이 알아서 했을 일" 과 실제 기여를 가른다. `--max-cost-usd` 로 상한을 걸 수 있다.

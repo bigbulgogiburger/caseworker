@@ -46,6 +46,7 @@
 
 - 레인 1개(기본): 메인이 직접 구현한다. dev-guide 의 DoD 를 작업 목록으로 쓴다.
 - 레인 2개 이상: **Phase 0 공통 계약**(DTO·API 경로·DDL·이벤트 이름)은 메인이 먼저 만들어 커밋한 뒤 `workflows/implement.js` args `{lanes[{name, model, worktree, files[], dod[]}], guidePaths, contracts, sidecarDir, sidecarPrefix, repoRoot, ts, maxTurns?}`(`sidecarDir` = `<runtime>/issues` · `sidecarPrefix` = `<slug>` · `maxTurns` 기본 60 — 턴 상한은 agent() 옵션이 아니라 프롬프트 지시로만 전달된다). 레인은 선언된 `model`(opus/sonnet) 과 `worktree` 플래그대로 돈다. 반환 `{lanes[{name, status, …}], failed[], sidecars[]}` — 죽은 레인은 빠지지 않고 `failed` 에 이름이 남는다. 레인별 사이드카 `<sidecarDir>/<sidecarPrefix>.lane-<name>.json` 을 `issue-set.mjs --merge` 로 반영하고, 레인 경계(seam — 한쪽이 부르고 다른 쪽이 받는 곳)는 메인이 직접 대조한다.
+- 레인 2개 이상이면 fan-out **전에** 그래프로 자른다(`skills/graph`): `node "<P>/scripts/graph.mjs" lanes <KEY,…> --touched <{KEY:[files]} 파일>` 의 `waves` 가 실행 순서, `conflicts` 가 비어야 같은 wave 를 병렬로 돌린다(겹치면 한 레인에 몰거나 wave 를 나눈다). 레인마다 `graph.mjs claim <KEY> --by <lane>` 으로 선점하고 끝나면 `--release`. 두 worktree 가 같은 파일을 고치는 머지 충돌은 배정 시점에 막는다.
 - 워크플로 레인의 "완주" 는 반환값으로 판정한다 — 산출물 파일이 있다고 완주가 아니다(중간에 죽은 레인도 파일은 남긴다).
 - 구현 중간 커밋은 gate → commit 순서 그대로.
 
