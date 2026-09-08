@@ -26,11 +26,13 @@ export function lintMarkdown(file, text) {
       if (!/^[A-Za-z0-9_-]+:\s*.*$/.test(l)) warns.push(`F: frontmatter ${i + 1}행이 key: value 꼴이 아니다 — ${l.slice(0, 40)}`);
     }
   }
-  for (const m of text.matchAll(/\[\[([^\]\n|#]+)(?:[|#][^\]]*)?\]\]/g)) {
+  // 코드 스팬·펜스 안의 `[[link]]`·`[a](b.md)` 는 문법 설명이지 링크가 아니다 — 지우고 본다
+  const prose = text.replace(/```[\s\S]*?```/g, '').replace(/`[^`\n]*`/g, '');
+  for (const m of prose.matchAll(/\[\[([^\]\n|#]+)(?:[|#][^\]]*)?\]\]/g)) {
     const name = m[1].trim();
     if (!existsSync(join(dir, `${name}.md`))) warns.push(`W: [[${name}]] → ${name}.md 가 같은 디렉터리에 없다`);
   }
-  for (const m of text.matchAll(/(?<!!)\[[^\]\n]*\]\(([^)\s#]+\.md)(?:#[^)]*)?\)/g)) {
+  for (const m of prose.matchAll(/(?<!!)\[[^\]\n]*\]\(([^)\s#]+\.md)(?:#[^)]*)?\)/g)) {
     const rel = m[1];
     if (/^[a-z]+:\/\//i.test(rel) || isAbsolute(rel)) continue;
     if (!existsSync(resolve(dir, rel))) warns.push(`R: 링크 대상 없음 — ${rel}`);

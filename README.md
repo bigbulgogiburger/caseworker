@@ -79,6 +79,8 @@ claude plugin install caseworker@bigbulgogiburger
 
 caseworker 는 jira-harness 3.2.0 을 흡수한 것입니다. Jira 는 이제 고정 축이 아니라 어댑터 하나입니다.
 
+**jira-harness 는 caseworker 로 대체됩니다(deprecated).** 기능 추가는 caseworker 에만 이뤄지고, jira-harness 는 보안 수정만 받습니다. 이관 절차는 `/caseworker:setup` §6b(설정 무변경 이관 · 두 플러그인 동시 활성 금지).
+
 - **v3 `harness.json` 은 무변경으로 동작합니다.** `version: 3` + `jira` 블록만 있는 설정은 그대로 읽혀 `jira` 트래커로 해석됩니다(`tracker` 를 명시하지 않았고 `jira` 블록이 있으면 트래커는 `jira`). `start_transition` · `done_transition` · `comment_lang` 값도 그대로 쓰입니다. local 로 옮기고 싶을 때만 `"version": 4`, `"tracker": "local"` 로 바꾸면 됩니다.
 - **두 플러그인을 동시에 켜지 마세요.** 둘 다 PreToolUse 훅을 등록하므로 `git commit` 한 번에 훅이 두 번 발화합니다(사유 코드가 뒤섞이고, 한쪽 판정이 다른 쪽을 가립니다). caseworker 를 설치했으면 **jira-harness 는 끕니다**.
 - **상태 JSON 은 그대로입니다.** `.claude/runtime/issues/<branch>.json` 의 스키마·경로가 같아 진행 중인 브랜치를 그대로 이어받습니다. 로그 접두는 `[jira-harness]` → `[caseworker]`, 스킬 네임스페이스는 `/jira-harness:*` → `/caseworker:*`, 환경변수 접두는 `CASEWORKER_` 입니다.
