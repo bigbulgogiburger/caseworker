@@ -1,0 +1,223 @@
+<!--
+  templates/scorecard.md.tmpl — `loop` 스킬 init 모드가 채워서 <project>/.loop/scorecard.md 로 생성.
+
+  역할: 이 파일은 loop.json(기계 설정) 의 **산문 SSoT** 다.
+    - loop.json    = loop.mjs / score 레인이 파싱하는 기계 설정 (dimensions·weights·probe·env·stop·caps·safety).
+    - scorecard.md = 사람이 읽고 편집하는 rubric 산문 + §점수이력 append-only 로그.
+    둘은 같은 dimension 집합을 공유하되, weight/probe/caps 의 진실원천은 loop.json 이고,
+    "각 등급이 무엇을 의미하는가(FULL/PARTIAL/CONFLICT/MISSING 정의)" 와 라운드별 점수 이력의
+    진실원천은 이 파일이다. 중복 정의 금지 — 숫자(weight)는 json, 산문(rubric)·이력은 md.
+
+  ⚠ 판정(STOP/ESCALATE/CONTINUE)은 이 문서가 하지 않는다. 그건 loop.mjs record 의 출력이다.
+     아래 §7 은 그 규칙의 *설명*일 뿐 계산 근거가 아니다.
+
+  치환 규칙 (init 이 수행):
+    {{placeholder}}        — 단일 값 치환 (예: {{project}} → my-app)
+    {{#each dimensions}}   — loop.json.dimensions 배열을 반복 (블록 끝 = {{/each}})
+       블록 안에서 {{this.id}} {{this.label}} {{this.weight}} {{this.evidence}} {{this.probe.*}} 사용.
+    init 은 인터뷰로 확정한 dimension 마다 §3 의 블록을 1개씩 펼쳐 쓴다.
+    FULL/PARTIAL/CONFLICT/MISSING 산문은 init 이 "초안"을 채우고, 사람이 인터뷰에서 보정한다.
+
+  이 파일은 사람이 직접 손으로 편집해도 된다 (rubric 문구 다듬기, 증거 anchor 추가/갱신).
+  단 §6 점수이력 표는 **append-only** — 기존 행 수정/삭제 금지 (루프 재진입·연속 판정의 감사 흔적).
+
+  본 주석 블록은 생성된 scorecard.md 상단에 그대로 남겨두어 편집자가 규칙을 잃지 않게 한다.
+-->
+
+# {{project}} — Completeness Scorecard (Loop Engineering)
+
+> **rubric SSoT** — 이 문서는 `.loop/loop.json`(기계 설정) 의 산문 진실원천이다. 점수의 *의미*(각 등급이
+> 무엇을 뜻하는가)와 라운드별 *이력*은 여기, 가중치·probe 커맨드·env·caps 는 `loop.json` 에 산다.
+> 방법론: Addy Osmani "Loop Engineering — Build the loop, stay the engineer."
+> *"코딩 에이전트에 프롬프트하지 말고, 에이전트에 프롬프트하는 루프를 설계하라."*
+
+| 항목 | 값 |
+|------|-----|
+| **목표 (goal)** | {{goal}} |
+| **STOP 기준** | active_total ≥ **{{stop.target}}** 이 full re-audit 에서 **연속 {{stop.consecutive}}회** |
+| **full re-audit 주기** | {{stop.full_audit_every}} 라운드마다 (그 외 라운드는 per-round working) |
+| **상한 (caps)** | {{caps}} <!-- 예: max_rounds 8 · max_cost_usd 25 · max_minutes 180 --> |
+| **서킷브레이커** | 파일 변경 0 연속 {{breaker.no_change_rounds}}회 · 같은 에러 {{breaker.same_error_rounds}}회 → ESCALATE |
+| **현재 종합 점수** | {{current_total}} / 100 ({{current_round}}) |
+| **현재 단계** | {{current_phase}} <!-- 예: far / developing / ready --> |
+| **범위 가드** | scope={{safety.scope}} · auto_merge={{safety.auto_merge}} · forbid={{safety.forbid}} |
+
+---
+
+## 1. 채점 원칙 (왜 이렇게 매기나 — anti-gaming SSoT)
+
+점수가 의미 있으려면 **"코드가 존재한다"가 아니라 "관찰된 동작이 목표를 충족한다"** 로만 매겨야 한다.
+정적분석(grep/타입체커)은 구조 결함만 잡고 런타임 500·캐시 HIT 경로·IDOR·보존법칙 위반을 못 본다.
+그래서 모든 점수 상승은 **실환경 신호**(실DB row / 200+실데이터 / 비-권한 403 / 스택트레이스 부재 / 벤치)
+에 결박한다. 이게 score-gaming(실패 테스트 삭제·미구현 "done" 체크)을 막는 유일한 방법이다.
+
+> **5 invariants:** ① "잘됨"을 숫자로 ② 숫자를 올린다(score→triage→fix→verify→rescore)
+> ③ 숫자를 못 속인다(실환경 신호 결박·held-out probe) ④ 결정론적 종료(판정은 `loop.mjs record`)
+> ⑤ 사람이 루프 안에 (브랜치만, **auto-merge 금지**).
+
+### 1.1 정합 등급 → 점수대 (band — 채점 레인이 dimension 마다 부여)
+
+| 등급 | 점수대 | 정의 |
+|------|--------|------|
+| **FULL** | 80~90 | 전 계층(BE/FE/DB/API) LIVE 배선 + 게이트 강제. 관찰된 동작이 목표를 온전히 충족. |
+| **PARTIAL** | 40~78 | 일부 계층만 결선 or 단일 진입점 의존(예: 프런트 검증만). 우회 가능. |
+| **CONFLICT** | 25~55 | 코드는 LIVE 이나 목표/명세와 **정면충돌**(out-of-spec-but-live 포함). |
+| **MISSING** | 12~30 | 진입점·producer·배선 부재(dead path 포함). 자산이 있어도 호출처 0건이면 여기. |
+
+> 등급은 *관찰된 동작*으로만 부여한다. "엔드포인트가 구현됨"은 FULL 근거가 아니다 — 실 호출처와
+> 실환경 신호가 있어야 한다.
+
+### 1.2 5대 감점 원칙 (실동작 기준 — 적용 누락 시 점수 거짓상승)
+
+1. **자산 존재 ≠ 운영 배선** — 메서드·endpoint 가 구현돼도 production 호출처 0건이면 dead path 감점.
+2. **빌드 GREEN ≠ 정합** — 테스트 통과·타입 clean 은 코드 일관성 신호일 뿐, 목표축 미달은 별도 감점.
+3. **단일 진입점 의존** 감점 — 불변식이 한 계층(예: 웹 프런트)뿐이고 다른 계층/API 로 우회 가능하면 CRITICAL.
+4. **DB/시스템 제약 부재** 감점 — 불변식이 앱레벨 순회 보장뿐이고 UNIQUE/constraint 미적용이면 race 로 무력화.
+5. **보존법칙 위반** 최중대 — 원장 SSoT 없는 단방향 증가(재고/잔액 등)는 시스템 신뢰성 근간 붕괴.
+
+### 1.3 도메인 보정점수 = 가중 blend (단순 평균 ❌)
+
+dimension 의 최종 점수는 그 안의 시나리오들을 **중요도·심각도로 가중 blend** 한 값이다.
+**binding constraint(최약 고리·최저 deficit)가 지배**하고, FULL outlier 는 점유분만큼만 반영한다 —
+실세계 정합은 *가장 약한 고리*가 결정하기 때문. 단순 평균을 쓰면 FULL 한두 개가 CRITICAL 을 가려
+거짓 상승한다. 가중은 판단이므로 **verifier 가 근거를 1줄 기록**(라운드 간 드리프트 방지).
+
+### 1.4 held-out probe
+
+`loop.json.dimensions[].probe.held_out = true` 인 probe 는 **maker 레인에 노출하지 않는다** — 문구조차
+프롬프트에 넣지 않고 verifier / full re-audit 에서만 돈다. maker 가 통과 조건을 알면 그것만 맞춰
+통과시키는 경로가 열리기 때문이다. 아래 §3 의 held-out 표시는 사람이 읽는 용도이고, 레인 프롬프트를
+조립할 때는 그 줄을 제외한다.
+
+---
+
+## 2. 가중치 표 (loop.json.dimensions 거울 — 진실원천은 json)
+
+> ⚠️ **이 표의 weight 는 `loop.json` 의 거울이다.** 가중치를 바꾸려면 `loop.json` 을 고치고 이 표를
+> 동기화한다(반대 아님). Σ weight = 1.00 이어야 하고, `loop.mjs check` 가 강제한다.
+
+| dimension | label | weight | probe kind | held-out | binding deficit (현재) |
+|-----------|-------|--------|-----------|----------|------------------------|
+{{#each dimensions}}| `{{this.id}}` | {{this.label}} | {{this.weight}} | {{this.probe.kind}} | {{this.probe.held_out}} | {{this.deficit}} |
+{{/each}}| **합계** | | **1.00** | | | |
+
+**가중치 산정 근거**: {{weight_rationale}}
+<!-- 예: "워크플로 핵심축(주문→결제→배송)에 횡단 정합 반영. inventory 0.30(보존법칙 하류 전파 최대)·…" -->
+
+---
+
+## 3. Dimension 별 rubric (FULL / PARTIAL / CONFLICT / MISSING 정의)
+
+> init 이 dimension 마다 아래 블록을 1개씩 펼쳐 쓴다. 각 등급 산문은 "이 dimension 이 그 등급이려면
+> *무엇이 관찰돼야 하는가*" 를 구체적·검증가능하게 적는다("잘 동작함" 같은 모호어 금지).
+> 증거 anchor 는 `file:line` 으로 — 정적 거짓음성을 배제하고 재probe 지점을 고정한다.
+
+{{#each dimensions}}
+### 3.{{@index}} {{this.label}} (`{{this.id}}`) — weight {{this.weight}}
+
+**목표 동작 (to-be)**: {{this.goal_behavior}}
+<!-- 이 dimension 이 충족해야 할 user-visible 성공 동작 한두 줄. -->
+
+| 등급 | 이 dimension 에서의 의미 (관찰 기준) |
+|------|--------------------------------------|
+| **FULL** (80~90) | {{this.rubric.full}} <!-- 예: "DB UNIQUE+서버 게이트+클라 검증 3계층 LIVE, 비-권한 토큰 403, SUM 불변" --> |
+| **PARTIAL** (40~78) | {{this.rubric.partial}} <!-- 예: "클라 검증만 존재, API 직접호출 시 우회 가능" --> |
+| **CONFLICT** (25~55) | {{this.rubric.conflict}} <!-- 예: "명세상 out-of-scope 인데 결제 확정까지 라이브" --> |
+| **MISSING** (12~30) | {{this.rubric.missing}} <!-- 예: "producer 진입점 부재로 조회는 늘 빈 결과, 호출처 0건" --> |
+
+**증거 anchor (file:line — 재probe 지점)**:
+{{#each this.evidence}}
+- `{{this}}`
+{{/each}}
+<!-- 없으면 init 이 "- (init: 증거 미수집 — 첫 score 라운드에서 채움)" 한 줄을 남긴다. -->
+
+**probe (실환경 신호 — loop.json.dimensions[{{@index}}].probe 거울)**:
+- kind: `{{this.probe.kind}}` <!-- db | http | test | shell | grep -->
+- expect(PASS 모습): {{this.probe.expect}} <!-- 예: "출고 전후 SUM 불변 · 200+실데이터 · 비-권한 토큰 403" -->
+- held-out: {{this.probe.held_out}} <!-- true 면 maker 레인 프롬프트에서 이 줄 전체를 제외한다 -->
+
+{{/each}}
+
+---
+
+## 4. BLOCKED 재정규화 (STOP 도달성 보장 — BLOCKED 발생 시 활성화)
+
+목표/룰/인증서 부재로 **BLOCKED** 처리된 dimension(또는 시나리오)이 있으면, 그 항목을 종합 점수
+분모에서 제외하지 않으면 raw 종합의 상한이 target 아래로 내려가 **루프가 영원히 종료 못 한다**.
+
+```
+blocked_weight  = Σ(BLOCKED 항목 가중 지분)
+blocked_contrib = Σ(BLOCKED score_b × weight_b)
+active_total    = ( Σ_all score_i×weight_i − blocked_contrib ) / ( 1 − blocked_weight )
+```
+
+- `active_total` 이 `loop.mjs record --active` 에 넘기는 값이다. raw 가 아니다.
+- ⚠️ BLOCKED 는 분모뿐 아니라 **분자에서도** 빼야 한다(분모만 빼면 거짓 상승).
+- 재정규화는 BLOCKED 항목을 *면제*하는 게 아니다 — 룰/인증서 확정 시 활성 복귀(가중치 원복 + 재채점).
+- BLOCKED 목록은 `record --blocked a,b` 로 함께 기록해 라운드 기록에 남긴다.
+
+**현재 BLOCKED 항목**: {{blocked_items}} <!-- 예: "settlement (룰 미확정) ≈ weight 0.08" / 없으면 "(없음)" -->
+
+---
+
+## 5. 종료 규칙 (설명 — 계산은 `loop.mjs record` 가 한다)
+
+```
+active_total ≥ {{stop.target}} 이 full audit 에서 연속 {{stop.consecutive}}회   → STOP
+caps 도달(max_rounds · max_cost_usd · max_minutes 중 하나)                    → STOP (cap_hit)
+파일 변경 0 연속 {{breaker.no_change_rounds}}회 / 같은 에러 {{breaker.same_error_rounds}}회 → ESCALATE
+동일 deficit 이 개선 없이 {{stop.consecutive}}라운드                          → ESCALATE
+룰/스펙/인증서 부재                                                            → BLOCKED 표기 + §4 분모 제외 + surface
+그 외                                                                          → CONTINUE (다음 모드는 record 의 next 가 알려준다)
+```
+
+> **이 표는 규칙의 설명이지 판정 근거가 아니다.** 판정은 언제나 `loop.mjs record` 의 `verdict` 다 —
+> per-round 점수로 STOP 을 선언하지 않는 것(국소 회귀·교차오염 미검출)도 스크립트가 강제한다.
+> auto_merge=false 불변 — STOP 도 인간 머지 게이트로 끝난다.
+
+## 6. 점수 이력 (append-only)
+
+> 라운드별 종합점수·dimension 점수 변화를 디스크 영속 로그로 기록. 루프 재진입과 연속 판정의 감사 흔적.
+> 기계 상태는 `.loop/checkpoint.json`(`rounds[]`)에 있고, 이 표는 사람이 읽는 거울이다. **수정 금지 — append 만**.
+> - `full` 라운드(full_audit_every 주기·STOP 후보 도달)만 이 표에 행을 추가한다.
+> - `per-round working` 라운드는 별표(`*`)를 붙여 working score 임을 표시(STOP 판정 불가).
+> - active_total = §4 재정규화 적용값. BLOCKED 없으면 raw 와 동일.
+
+| 라운드 | 일자 | active_total | {{dim_header_cells}} | verdict | 비고 |
+|--------|------|--------------|{{dim_header_sep}}|---------|------|
+<!--
+  dim_header_cells / dim_header_sep 는 init 이 loop.json.dimensions 순서로 채운다. 예:
+  | 라운드 | 일자 | active_total | inventory | orders | catalog | security | verdict | 비고 |
+  |--------|------|--------------|-----------|--------|---------|----------|---------|------|
+-->
+| R0 | {{baseline_date}} | {{baseline_total}} | {{baseline_dim_cells}} | CONTINUE | baseline (init 직후 full) |
+<!--
+  ▼ 이하 라운드마다 정확히 1행 append. verdict 열은 `loop.mjs record` 가 돌려준 값을 그대로 옮긴다
+  (손으로 판정하지 않는다). 포맷:
+  | Rx | YYYY-MM-DD | <active_total> | <dim1> | <dim2> | … | <CONTINUE|STOP|ESCALATE> | <무엇 fix·잔여 binding·STALE> |
+  per-round working 은 라운드명에 * 표기. 예:
+  | R3* | 2026-01-14 | ~71 | 60 | 78 | 62 | 84 | CONTINUE | per-round working(security 만 갱신 — STOP 판정 불가) |
+-->
+
+---
+
+## 7. 검증 메타 포맷 (매 full 라운드 — §6 행과 짝)
+
+> 각 full re-audit 은 §6 한 행 + 아래 메타 한 단락을 남긴다. 메타는 점수가 *측정*임을 입증하는
+> 감사 흔적이다(주장 아님).
+
+```
+[Rx full re-audit · YYYY-MM-DD]
+- active_total: <n> (raw <n>) — 직전 full 대비 Δ<±n>, 변동 dimension: <id +Δ 근거 1줄>
+- 변경/fix: <이번 라운드 브랜치·무엇을 고쳤나> · 변경 파일 수: <n>
+- 잔여 binding (다음 triage 후보): <dimension — deficit 1줄, 실코드 file:line>
+- held-out probe 결과: <어느 축을 돌렸고 무엇이 관찰됐나 — maker 는 못 본 신호>
+- STALE: <live 가 죽어 직전 점수를 유지한 항목 — 없으면 "없음">
+- BLOCKED: <accept-by-design 으로 surface 한 항목 — 없으면 "없음">
+- anti-gaming 자기점검: 테스트 개수만으로 상승 ❌ / 정적 grep 0건을 PASS 로 ❌ / BLOCKED 억지상승 ❌ / live 죽었는데 PASS ❌
+- 가중 blend 판단 근거: <binding constraint 가 왜 그 점수를 지배하는지 1줄 — 드리프트 방지>
+- record 출력: <loop.mjs record 가 돌려준 verdict + reason 한 줄 그대로>
+```
+
+---
+

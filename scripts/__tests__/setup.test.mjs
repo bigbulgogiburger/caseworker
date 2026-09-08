@@ -366,7 +366,9 @@ test('inject: 임시 clone 에서 실측 — 패턴 밖 deny · 게이트 없음
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.equal(r.value.clone, true);
   const byCase = Object.fromEntries(r.value.cases.map(c => [c.case, c]));
-  assert.deepEqual(Object.keys(byCase).sort(), ['branch-pattern', 'commit-after-gate', 'commit-without-gate', 'powershell-commit-without-gate', 'push-without-full-gate']);
+  assert.deepEqual(Object.keys(byCase).sort(), ['branch-pattern', 'commit-after-gate', 'commit-without-gate', 'powershell-commit-without-gate', 'protected-file-edit', 'push-without-full-gate']);
+  assert.equal(byCase['protected-file-edit'].got, 'PROTECTED', `보호 파일 편집은 막혀야 한다: ${JSON.stringify(byCase['protected-file-edit'])}`);
+  assert.equal(byCase['protected-file-edit'].decision, 'deny');
   assert.equal(byCase['powershell-commit-without-gate'].got, 'NO_GATE', `PowerShell 툴 커밋도 같은 게이트: ${JSON.stringify(byCase['powershell-commit-without-gate'])}`);
   assert.equal(byCase['powershell-commit-without-gate'].decision, 'deny');
   assert.equal(byCase['branch-pattern'].got, 'BRANCH_PATTERN', JSON.stringify(byCase['branch-pattern']));

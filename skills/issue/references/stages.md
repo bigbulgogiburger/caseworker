@@ -49,6 +49,7 @@
 - 레인 2개 이상이면 fan-out **전에** 그래프로 자른다(`skills/graph`): `node "<P>/scripts/graph.mjs" lanes <KEY,…> --touched <{KEY:[files]} 파일>` 의 `waves` 가 실행 순서, `conflicts` 가 비어야 같은 wave 를 병렬로 돌린다(겹치면 한 레인에 몰거나 wave 를 나눈다). 레인마다 `graph.mjs claim <KEY> --by <lane>` 으로 선점하고 끝나면 `--release`. 두 worktree 가 같은 파일을 고치는 머지 충돌은 배정 시점에 막는다.
 - 워크플로 레인의 "완주" 는 반환값으로 판정한다 — 산출물 파일이 있다고 완주가 아니다(중간에 죽은 레인도 파일은 남긴다).
 - 구현 중간 커밋은 gate → commit 순서 그대로.
+- 같은 이슈를 여러 라운드 돌며 점수를 올려야 하는 일(정합도·완성도 목표)은 `skills/loop` 로 넘긴다 — implement↔verify 를 `loop.mjs record` 장부로 반복하고, commit/push 판정은 그대로 이 사다리를 탄다.
 
 ## verify — 리뷰 사다리
 
@@ -70,6 +71,8 @@
 - 커밋 전 `gate.mjs --commit [--stage-all]` — 컴파일·린트·DoD 프로브, **건드린 스택만**. 목표 `gate.commit_budget_s`(기본 3분).
 - push·complete 전 `gate.mjs --full` — 빌드·전체 테스트·extra(프로젝트 정적 게이트 등). 9~15분이면 Bash `run_in_background` 로 돌리고 알림을 기다린다(폴링하지 않는다).
 - 같은 트리에 전량 통과 기록이 이미 있으면 `--commit` 은 재실행을 생략한다.
+- DoD `held_out:true` 프로브는 `--commit` 에서 돌지 않고 `--full` 에서만 돈다 — 구현 레인이 통과 조건을 보고 맞추지 못하게 하는 검증. 구현 프롬프트에 그 프로브 명령을 싣지 않는다.
+- `harness.json.protected[]` 글롭(테스트·DoD 자산·게이트 스크립트)은 `protect-gate` 훅이 Edit/Write 를 막는다. 정말 바꿔야 하면 글롭을 빼는 설정 변경을 diff 에 남긴다.
 - DoD `human:true` 는 게이트가 SKIPPED 로 남긴다 — 보고에 "사람 확인 필요 N건" 을 적는다. `expect.min_tests` 는 실행 건수 0 을 FAIL 로 본다(초록이 "검사 0" 인지 "위반 0" 인지 구분하기 위해). 건수는 러너 요약 줄(`Tests N passed`·`N tests completed`·`Tests run: N`)이나 숫자 한 줄에서 읽고 색상 코드는 벗긴다. 건수를 출력하지 않는 sentinel 프로브(위반 주입·존재 검사·lint 문구)에는 `min_tests` 를 두지 않는다 — 두면 "분모 미확인" 으로 상시 FAIL 이다.
 - FAIL 이면 `<runtime>/gate/<slug>-<level>-<시각>.log` 를 읽고 코드를 고친 뒤 재실행. 게이트 명령을 바꾸거나 테스트를 지워서 통과시키지 않는다.
 

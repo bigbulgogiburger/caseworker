@@ -1,0 +1,270 @@
+// ──────────────────────────────────────────────────────────────────────────
+//  loop — 무인 멀티라운드 Workflow 드라이버  (templates/driver.js.tmpl)
+// ──────────────────────────────────────────────────────────────────────────
+//  이 파일은 `loop init` 이 .loop/loop.json 의 값으로 {{PLACEHOLDER}} 를 치환해
+//  <project>/.loop/driver.js 로 **생성**하는 템플릿이다. 직접 편집하지 말고
+//  loop.json 을 고친 뒤 재생성한다.
+//
+//  역할: `loop run N` (N≥2) 의 무인 엔진 (b)안. N=1 은 attended 가 처리하고,
+//  (a)안 Stop 훅 모드는 이 파일 없이 훅이 라운드를 되먹인다.
+//  호출: Workflow({ name: '{{NAME}}-loop', args: { maxRounds: N, branch: 'loop/...' } }).
+//
+//  ★판정은 이 스크립트가 하지 않는다. 라운드마다 record 레인이 Bash 로
+//    `node "<플러그인루트>/scripts/loop.mjs" record … --json` 을 실행하고,
+//    그 JSON(verdict·reasons·next)을 구조화 출력으로 돌려준다. 드라이버는
+//    verdict 가 'CONTINUE' 가 아니면 루프를 끝낼 뿐이다. STOP/ESCALATE 계산·
+//    target 연속 카운트·caps·서킷브레이커는 전부 loop.mjs 안에 있다 —
+//    여기에 복제하면 SSoT 가 둘로 갈라지고 off-by-one 이 난다.
+//
+//  설계 불변(5 invariants):
+//   1. "잘됨"을 숫자로   — 모든 판정은 active_total(0~100) 점수에 결박.
+//   2. 숫자를 올린다      — round = triage→fix→verify→record.
+//   3. 숫자를 못 속인다    — verify 는 maker≠verifier 실환경 probe. held-out probe 는
+//                          maker 프롬프트에 넣지 않고 verifier 만 돌린다.
+//   4. 결정론적 종료      — loop.mjs record 의 verdict.
+//   5. 사람이 루프 안에    — ★auto-merge 절대 금지. 브랜치만 만들고 인간이 머지.
+//
+//  컨텍스트 규율: 이 스크립트는 **compact 상태만** 보유한다(round 카운터·마지막 점수·
+//  stopReason). 문서 통독/파일 전체내용/추론은 전부 sub-agent 가 하고, 진짜 상태는
+//  디스크(.loop/checkpoint.json · scorecard.json · scorecard.md §이력)에 산다 —
+//  "디스크 = 메모리". 중단해도 checkpoint.json 에서 이어진다.
+//
+//  안전(local-only): probe·fix 는 로컬 범위만. FORBID 목록의 작업(원격 push·prod write·
+//  force push 등)은 레인이 보고한 risky_cmds 를 드라이버가 재매칭해 abort+surface 한다.
+//  DB probe 는 read-only, 마이그레이션은 local 적용만(원격은 인간 게이트).
+//  커밋/푸시 자체의 판정은 여전히 PreToolUse 훅(commit-gate)이 한다.
+// ──────────────────────────────────────────────────────────────────────────
+
+export const meta = {
+  name: '{{NAME}}-loop',
+  description:
+    '완성도 루프 무인 멀티라운드 드라이버 — triage→fix→verify→record 를 라운드 반복. ' +
+    '디스크=메모리(.loop/checkpoint.json · scorecard.json · scorecard.md §이력), 스크립트는 compact 상태만 보유. ' +
+    '판정은 loop.mjs record 의 verdict 를 따르고, 브랜치만 만들고 머지하지 않는다.',
+  phases: [
+    { title: 'Triage', detail: 'loop.json + checkpoint.json 선택 Read → 다음 dimension' },
+    { title: 'Fix', detail: 'maker 가 dimension 구현(브랜치 커밋, 머지 금지)' },
+    { title: 'Verify', detail: 'maker≠verifier 실환경 재probe(held-out 포함)' },
+    { title: 'Record', detail: 'loop.mjs record 실행 → verdict·next 회수' },
+  ],
+}
+
+// ── 프로젝트별 상수 (init 이 loop.json 값으로 치환) ─────────────────────────
+// {{NAME}}             : loop.json.name        — 프로젝트 slug
+// {{PLUGIN_ROOT}}      : 플러그인 루트 절대 경로 (scripts/loop.mjs 가 그 아래)
+// {{BRANCH_FALLBACK}}  : args.branch 누락 시 안전망 브랜치명 (예: loop/<name>)
+// {{ENV_START|DB|TEST|AUTH}} : loop.json.env.*  — 세계를 살리는 법
+// {{FORBID_LIST}}      : safety.forbid 를 쉼표 산문으로 (maker/verifier 프롬프트 주입용)
+// {{FORBID_ARRAY}}     : safety.forbid 를 JS 배열 리터럴로 (코드 가드용)
+//                        ★bare 'merge'/'force'/'push' 금지 — operation-anchor 로 적을 것
+const LOOP_MJS = '{{PLUGIN_ROOT}}/scripts/loop.mjs'
+const LOOP_JSON = '.loop/loop.json'
+const SCORECARD = '.loop/scorecard.md'
+const CHECKPOINT = '.loop/checkpoint.json'
+const FORBID = '{{FORBID_LIST}}'
+const FORBID_PATTERNS = {{FORBID_ARRAY}}
+
+const ENV = {
+  start: '{{ENV_START}}',
+  db: '{{ENV_DB}}',
+  test: '{{ENV_TEST}}',
+  auth: '{{ENV_AUTH}}',
+}
+
+// ★forbid 코드 가드 — sub-agent 자기검열을 신뢰하지 않고 드라이버가 재매칭한다.
+//   한계: 레인이 risky_cmds 를 누락하면 못 잡는다(보조 결정론 가드).
+function forbidRe(p) {
+  return new RegExp(p.split('*').map(s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*'), 'i')
+}
+function checkForbid(cmds) {
+  if (!Array.isArray(cmds) || !cmds.length) return []
+  const hits = []
+  for (const c of cmds) {
+    for (const p of FORBID_PATTERNS) {
+      const hit = p.includes('*') ? forbidRe(p).test(c) : c.toLowerCase().includes(p.toLowerCase())
+      if (hit) hits.push(p + ' ⟵ "' + c + '"')
+    }
+  }
+  return hits
+}
+
+// ★브랜치 선택은 오케스트레이터(run 모드 메인)가 1회 결정해 args.branch 로 전달한다:
+//   현재 브랜치가 loop/* 면 그 위에 적층, 아니면 새 loop/* 브랜치를 만들고 시작.
+//   드라이버는 Workflow 런타임상 git 결정을 할 수 없다. fallback 은 args 누락 시 안전망일 뿐 —
+//   인간 머지 후 stale 일 수 있는 동명 브랜치 재사용 위험이 있으니 항상 args.branch 를 넘길 것.
+const BRANCH = (args && args.branch) || '{{BRANCH_FALLBACK}}'
+const MAX_ROUNDS = (args && args.maxRounds) || 6
+
+// ── 단계별 compact 반환 스키마 (파일 전체/추론 대신 이것만 회수) ──────────────
+const TRIAGE_SCHEMA = {
+  type: 'object',
+  required: ['next_id', 'label', 'mode', 'blocked_only_remaining'],
+  properties: {
+    next_id: { type: 'string', description: '다음에 손댈 dimension id (loop.json dimensions[].id)' },
+    label: { type: 'string', description: '그 dimension 의 사람 라벨' },
+    mode: { type: 'string', enum: ['full', 'per-round'], description: 'checkpoint.json 의 next.mode — 없으면 per-round' },
+    blocked_only_remaining: { type: 'boolean', description: '남은 미완이 BLOCKED 뿐인가' },
+    reason: { type: 'string' },
+  },
+}
+const FIX_SCHEMA = {
+  type: 'object',
+  required: ['branch', 'files', 'summary', 'self_test_pass'],
+  properties: {
+    branch: { type: 'string' },
+    files: { type: 'array', items: { type: 'string' } },
+    summary: { type: 'string', description: '구현 요약 5줄 이내' },
+    self_test_pass: { type: 'boolean', description: '자체 빌드/테스트 GREEN 여부' },
+    error: { type: 'string', description: '실패했다면 에러 시그니처 한 줄(브레이커 축) — 없으면 빈 문자열' },
+    risky_cmds: { type: 'array', items: { type: 'string' }, description: '실행한 부작용 커맨드. forbid 재매칭용 — 없으면 빈 배열' },
+  },
+}
+const VERDICT_SCHEMA = {
+  type: 'object',
+  required: ['pass', 'verdict', 'evidence', 'active_total', 'dimension_score'],
+  properties: {
+    pass: { type: 'boolean' },
+    verdict: { type: 'string', enum: ['PASS', 'ITERATE', 'ESCALATE'] },
+    evidence: { type: 'string', description: '실probe 핵심 신호(상태코드/DB 합계/403/벤치) — 이게 없으면 PASS 금지' },
+    active_total: { type: 'number', description: 'BLOCKED 재정규화 후 활성 종합점수 0~100' },
+    dimension_score: { type: 'number', description: '이번 축의 점수 0~100' },
+    domains_json: { type: 'string', description: 'dimension id → 점수 맵의 JSON 문자열 (record --domains 로 넘긴다)' },
+    blocked: { type: 'string', description: 'BLOCKED dimension id 쉼표 나열 — 없으면 빈 문자열' },
+    error: { type: 'string', description: '이번 라운드 대표 에러 시그니처 — 없으면 빈 문자열' },
+    risky_cmds: { type: 'array', items: { type: 'string' }, description: 'probe 가 실행한 부작용 커맨드 — 없으면 빈 배열' },
+  },
+}
+const RECORD_SCHEMA = {
+  type: 'object',
+  required: ['verdict', 'round', 'reason'],
+  properties: {
+    verdict: { type: 'string', enum: ['CONTINUE', 'STOP', 'ESCALATE'], description: 'loop.mjs record 가 돌려준 verdict — 그대로 옮긴다' },
+    round: { type: 'number' },
+    reason: { type: 'string', description: 'record 의 reasons 를 한 줄로' },
+    next_mode: { type: 'string', description: 'record 의 next.mode — 정지면 빈 문자열' },
+    cap_hit: { type: 'boolean' },
+    appended: { type: 'boolean', description: 'scorecard.md §점수이력 행 append 여부(full 라운드만)' },
+  },
+}
+
+// ── compact 런타임 상태(이 스크립트가 보유하는 전부) ────────────────────────
+let round = 0
+let lastActive = null
+let stopReason = null
+const produced = []
+
+while (round < MAX_ROUNDS) {
+  if (budget.total && budget.remaining() < 80000) { stopReason = 'budget-low'; break }
+
+  // ── 1. Triage ── 디스크만 선택적으로 읽고 다음 dimension 결정 (문서 통독 금지)
+  phase('Triage')
+  const tri = await agent(
+    '완성도 루프 triage. ' + LOOP_JSON + '(dimensions·triage_order) + ' + CHECKPOINT + '(next·last_deficit·no_progress) + ' +
+    SCORECARD + ' 의 §점수이력 마지막 행만 선택적으로 Read(★통독 금지 — offset/Grep 으로 부분 조회). ' +
+    'triage_order 가 "auto" 면 weakest-link-first(가중 binding constraint = 배점×미달폭 최대), ' +
+    '명시 배열이면 그 순서상 첫 미완 dimension 을 고른다. ' +
+    'checkpoint.json 의 next.mode 가 있으면 그대로 mode 로 반환(없으면 "per-round"). ' +
+    '★판정하지 말 것 — STOP/ESCALATE 는 record 레인이 loop.mjs 로 받는다. ' +
+    '반환: next_id·label·mode·blocked_only_remaining·reason.',
+    { label: 'triage-r' + (round + 1), phase: 'Triage', schema: TRIAGE_SCHEMA, model: 'sonnet' }
+  )
+  if (!tri) { stopReason = 'triage-failed'; break }
+  if (tri.blocked_only_remaining) { stopReason = 'BLOCKED-only-remaining'; break }
+
+  log('R' + (round + 1) + ': ' + tri.next_id + ' (' + tri.label + ') · mode=' + tri.mode)
+
+  // ── 2. Fix (maker) ── 브랜치에 커밋, 머지 금지. compact 만 반환
+  //     ★held-out probe 는 이 프롬프트에 넣지 않는다 — maker 가 통과 조건을 알면 그것만 맞춘다.
+  phase('Fix')
+  const fix = await agent(
+    'maker 레인. ' + BRANCH + ' 브랜치(없으면 기준 브랜치에서 생성, 있으면 그 위에 적층)에서 ' +
+    'dimension "' + tri.next_id + '" 를 ' + SCORECARD + ' 의 해당 rubric(FULL 정의)대로 구현한다. ' +
+    '★' + LOOP_JSON + ' 을 읽을 때 probe.held_out=true 인 항목은 열지 말 것(검증 자산 — 보면 그것만 맞추게 된다). ' +
+    '★안전(local-only): 다음 작업 절대 금지 — ' + FORBID + '. 원격/prod/자격증명/force-push 시도 시 즉시 중단+surface. ' +
+    '마이그레이션은 local 적용·검증만. 보호 파일(harness.json.protected 글롭 — 테스트·게이트 자산)은 훅이 편집을 막는다: ' +
+    '검증 자산을 고쳐 초록을 만들려 하지 말 것. ' +
+    '환경: 기동="' + ENV.start + '", 테스트="' + ENV.test + '"(플래그/데몬 주의). ' +
+    '구현 후 ' + BRANCH + ' 에 커밋(★머지 금지 — 커밋은 훅이 판정한다). 자체 빌드/테스트 GREEN 확인. ' +
+    '★compact 만 반환: branch·바뀐 files 목록·summary 5줄·self_test_pass·error(있으면 시그니처 한 줄)·' +
+    'risky_cmds(실행한 부작용 커맨드 배열 — 위반 의도가 없어도 정직 보고, 없으면 빈 배열). 파일 전체내용/추론 반환 금지.',
+    { label: 'fix-r' + (round + 1) + '-' + tri.next_id, phase: 'Fix', schema: FIX_SCHEMA, model: 'opus' }
+  )
+  if (!fix) { stopReason = 'fix-failed@' + tri.next_id; break }
+  const fixForbid = checkForbid(fix.risky_cmds)
+  if (fixForbid.length) {
+    stopReason = 'FORBID-violation@fix-' + tri.next_id + ': ' + fixForbid.join(' · ')
+    log('R' + (round + 1) + ': ★FORBID 위반 abort(fix) — ' + fixForbid.join(' · '))
+    break
+  }
+
+  // ── 3. Verify (maker≠verifier) ── 코드를 짜지 않은 레인이 실환경 재probe (held-out 포함)
+  phase('Verify')
+  const ver = await agent(
+    'verifier 레인 — ★당신은 이 코드를 짜지 않았다(독립 검증). ' + BRANCH + ' 브랜치를 확인해 ' +
+    'dimension "' + tri.next_id + '" 의 fix 를 검증한다: ' +
+    '(1) 변경 파일 코드리뷰. ' +
+    '(2) ★실환경 재probe — ' + LOOP_JSON + ' 의 dimensions[].probe 대로 돌린다. ' +
+    '★held_out=true 인 probe 를 반드시 포함해 실행한다(maker 는 보지 못한 신호 — 여기서만 돈다). ' +
+    (tri.mode === 'full' ? '이번은 full 라운드다: 전 dimension 의 probe 를 다시 돌려 교차오염·국소회귀를 본다. ' : '이번은 per-round 다: 터치한 축 + held-out probe 만 돌린다. ') +
+    '세계를 먼저 살린다: 기동="' + ENV.start + '". 신호: DB="' + ENV.db + '"(read-only), 비-권한 토큰="' + ENV.auth + '". ' +
+    '★리뷰 verdict 단독 PASS 금지 — 실probe 신호(상태코드/DB 합계/403/벤치)가 필수다. ' +
+    'live 가 죽어 신호를 못 얻으면 pass=false + verdict="ITERATE"(거짓상승 방지). ' +
+    '점수는 scorecard.md §1 의 band·5대 감점·가중 blend 로 매기고, BLOCKED 는 분자·분모에서 빼 재정규화한 값을 active_total 로 낸다. ' +
+    '★안전: ' + FORBID + ' 금지. ' +
+    '반환: pass·verdict·evidence(핵심 실신호)·active_total·dimension_score·domains_json(dimension→점수 맵 JSON 문자열)·' +
+    'blocked(쉼표 나열)·error(시그니처 또는 빈 문자열)·risky_cmds.',
+    { label: 'verify-r' + (round + 1) + '-' + tri.next_id, phase: 'Verify', schema: VERDICT_SCHEMA, model: 'sonnet' }
+  )
+  const verForbid = ver ? checkForbid(ver.risky_cmds) : []
+  if (verForbid.length) {
+    stopReason = 'FORBID-violation@verify-' + tri.next_id + ': ' + verForbid.join(' · ')
+    log('R' + (round + 1) + ': ★FORBID 위반 abort(verify) — ' + verForbid.join(' · '))
+    break
+  }
+  if (!ver) { stopReason = 'verify-failed@' + tri.next_id; break }
+  if (!ver.pass) log('R' + (round + 1) + ': verify ' + ver.verdict + ' — 점수는 그대로 기록하고 브레이커가 판단한다')
+
+  // ── 4. Record ── ★판정. 레인이 Bash 로 loop.mjs 를 돌리고 그 JSON 을 그대로 회수한다.
+  phase('Record')
+  const changed = fix.files ? fix.files.length : 0
+  const rec = await agent(
+    '루프 장부 기록 레인. 아래 명령을 Bash 로 **그대로** 실행하고, 출력 JSON 의 값을 스키마에 옮겨 반환한다. ' +
+    '★점수를 다시 매기거나 verdict 를 스스로 판단하지 말 것 — 판정은 이 명령의 출력이다.\n\n' +
+    '  node "' + LOOP_MJS + '" record --mode ' + tri.mode +
+    ' --active ' + (ver.active_total != null ? ver.active_total : 0) +
+    ' --deficit ' + tri.next_id +
+    ' --changed-files ' + changed +
+    (ver.domains_json ? " --domains '" + ver.domains_json + "'" : '') +
+    (ver.blocked ? ' --blocked ' + ver.blocked : '') +
+    (ver.error ? ' --error "' + ver.error + '"' : (fix.error ? ' --error "' + fix.error + '"' : '')) +
+    ' --note "R' + (round + 1) + ' ' + tri.next_id + ' ' + (ver.pass ? 'PASS' : ver.verdict) + '" --json\n\n' +
+    '종료코드 1 은 실패가 아니라 "멈춰라"(STOP/ESCALATE)다 — 출력 JSON 을 그대로 읽어 반환할 것. ' +
+    '그 다음, 이번이 full 라운드면(' + tri.mode + '=="full") ' + SCORECARD + ' §9 점수이력 표에 라운드 1행을 append 한다 ' +
+    '(verdict 열은 위 출력값 그대로 · 기존 행 수정 금지) 그리고 §10 검증 메타 단락을 남긴다. per-round 면 append 하지 않는다. ' +
+    '반환: verdict·round·reason·next_mode·cap_hit·appended.',
+    { label: 'record-r' + (round + 1), phase: 'Record', schema: RECORD_SCHEMA, model: 'sonnet' }
+  )
+  if (!rec) { stopReason = 'record-failed@' + tri.next_id; break }
+
+  if (ver.active_total != null) lastActive = ver.active_total
+  produced.push({ round: rec.round, dimension: tri.next_id, branch: fix.branch, active_total: lastActive, verdict: rec.verdict })
+  log('R' + rec.round + ': ' + rec.verdict + ' — ' + rec.reason)
+
+  if (rec.verdict !== 'CONTINUE') { stopReason = rec.verdict + ': ' + rec.reason; break }
+
+  round++
+}
+
+// ── 핸드오프 (★auto-merge 안 함 — "stay the engineer") ──────────────────────
+return {
+  stopReason: stopReason || 'max-rounds-reached(' + MAX_ROUNDS + ')',
+  rounds_done: round,
+  last_active_total: lastActive,
+  branch: BRANCH,
+  produced,
+  human_gate:
+    '★auto-merge 안 함 — 브랜치(' + BRANCH + ')를 인간이 리뷰·머지하세요. ' +
+    '원격/prod 적용(마이그레이션·cutover·자격증명)은 별도 인간 게이트. ' +
+    '판정은 loop.mjs record 의 verdict 였습니다(STOP/ESCALATE/caps/브레이커). ' +
+    '중단됐다면 loop.mjs status 로 현황을 보고 .loop/checkpoint.json 에서 이어서 재호출할 수 있습니다(디스크=메모리).',
+}

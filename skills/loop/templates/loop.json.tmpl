@@ -1,0 +1,95 @@
+{
+  "version": 1,
+  "name": "{{NAME}}",
+  "goal": "{{GOAL}}",
+  "dimensions": [
+    {
+      "id": "{{DIM1_ID}}",
+      "label": "{{DIM1_LABEL}}",
+      "weight": 0.3,
+      "evidence": [
+        "{{DIM1_EVIDENCE_1}}",
+        "{{DIM1_EVIDENCE_2}}"
+      ],
+      "probe": {
+        "kind": "db",
+        "cmd": "{{DIM1_PROBE_CMD}}",
+        "expect": "{{DIM1_PROBE_EXPECT}}",
+        "held_out": true
+      }
+    },
+    {
+      "id": "{{DIM2_ID}}",
+      "label": "{{DIM2_LABEL}}",
+      "weight": 0.25,
+      "evidence": [
+        "{{DIM2_EVIDENCE_1}}"
+      ],
+      "probe": {
+        "kind": "http",
+        "cmd": "{{DIM2_PROBE_CMD}}",
+        "expect": "{{DIM2_PROBE_EXPECT}}",
+        "held_out": false
+      }
+    },
+    {
+      "id": "{{DIM3_ID}}",
+      "label": "{{DIM3_LABEL}}",
+      "weight": 0.25,
+      "evidence": [
+        "{{DIM3_EVIDENCE_1}}"
+      ],
+      "probe": {
+        "kind": "test",
+        "cmd": "{{DIM3_PROBE_CMD}}",
+        "expect": "{{DIM3_PROBE_EXPECT}}",
+        "held_out": false
+      }
+    },
+    {
+      "id": "{{DIM4_ID}}",
+      "label": "{{DIM4_LABEL}}",
+      "weight": 0.2,
+      "evidence": [
+        "{{DIM4_EVIDENCE_1}}"
+      ],
+      "probe": {
+        "kind": "http",
+        "cmd": "{{DIM4_PROBE_CMD}}",
+        "expect": "{{DIM4_PROBE_EXPECT}}",
+        "held_out": true
+      }
+    }
+  ],
+  "env": {
+    "start": "{{ENV_START}}",
+    "db": "{{ENV_DB}}",
+    "test": "{{ENV_TEST}}",
+    "auth": "{{ENV_AUTH}}"
+  },
+  "stop": {
+    "target": 90,
+    "consecutive": 2,
+    "full_audit_every": 3
+  },
+  "caps": {
+    "max_rounds": 8,
+    "max_cost_usd": 25,
+    "max_minutes": 180
+  },
+  "breaker": {
+    "no_change_rounds": 2,
+    "same_error_rounds": 3
+  },
+  "triage_order": "auto",
+  "safety": {
+    "scope": "local-only",
+    "forbid": [
+      "git push",
+      "--force",
+      "rm -rf",
+      "{{FORBID_PROD_WRITE_PATTERN}}"
+    ],
+    "auto_merge": false
+  }
+}

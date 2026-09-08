@@ -1,5 +1,5 @@
 {
-  "description": "caseworker: git commit / git push are judged against the branch state JSON (gate + review records). Both shell tools (Bash, PowerShell) are matched — matching only one leaves the other as an unguarded path. This is the only hook.",
+  "description": "caseworker hooks. (1) PreToolUse Bash|PowerShell: git commit / git push are judged against the branch state JSON (gate + review records) — both shell tools, because matching only one leaves the other unguarded. (2) PreToolUse Edit|Write|MultiEdit|NotebookEdit: files matching harness.json.protected[] cannot be edited (verification assets, gate scripts). (3) Stop: when a completeness loop is active for this session (.loop/session.local.json), the stop is blocked and the next round prompt is fed back; verdict comes from loop.mjs on disk.",
   "hooks": {
     "PreToolUse": [
       {
@@ -9,6 +9,27 @@
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/commit-gate.mjs\"",
             "timeout": 30
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/protect-gate.mjs\"",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/stop-loop.mjs\"",
+            "timeout": 15
           }
         ]
       }

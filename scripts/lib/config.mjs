@@ -14,6 +14,7 @@ export const DEFAULTS = Object.freeze({
   shell: 'auto',
   runtime_dir: '.claude/runtime',
   docs_only_paths: ['docs/**', '**/*.md'],
+  protected: [],
   fingerprint_exclude: ['.claude/runtime/**', '**/*.draft'],
   review: { codex: true, codex_timeout: 2400, lanes_max: 4, lanes_when: 'codex_gap', lane_model: 'sonnet', rounds_max: 2, code_review: false },
   models: { orchestrate: 'inherit', design: 'opus', recon: 'sonnet', implement: 'opus', verify: 'sonnet' },

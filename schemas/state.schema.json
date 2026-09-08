@@ -49,6 +49,7 @@
             }
           },
           "human": { "type": "boolean" },
+          "held_out": { "type": "boolean", "description": "true 면 경량(commit) 게이트에서는 돌지 않고 전량(full) 게이트에서만 돈다 — maker 가 보지 못하는 검증" },
           "last": { "type": "string", "enum": ["PASS", "FAIL", "PENDING", "SKIPPED"] },
           "at": { "type": "string" }
         }

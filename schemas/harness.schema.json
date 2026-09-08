@@ -208,6 +208,22 @@
         "type": "string"
       }
     },
+    "protected": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "편집 금지 글롭(프로젝트 루트 기준) — 게이트 스크립트·DoD 가 기대는 테스트·held-out 검증 자산·그래프 원장. protect-gate 훅이 Edit/Write 를 막는다(mode 를 따른다)"
+    },
+    "loop": {
+      "type": "object",
+      "description": "완성도 루프 기본값(프로젝트 .loop/loop.json 이 우선). caps 는 loop init 이 요구한다",
+      "properties": {
+        "target": { "type": "number" },
+        "consecutive": { "type": "integer" },
+        "full_audit_every": { "type": "integer" },
+        "caps": { "type": "object", "properties": { "max_rounds": { "type": "integer" }, "max_cost_usd": { "type": "number" }, "max_minutes": { "type": "number" } } },
+        "breaker": { "type": "object", "properties": { "no_change_rounds": { "type": "integer" }, "same_error_rounds": { "type": "integer" } } }
+      }
+    },
     "fingerprint_exclude": {
       "type": "array",
       "items": {

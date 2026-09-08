@@ -72,11 +72,13 @@ const wanted = opt('--stacks') ? opt('--stacks').split(',').map(s => s.trim()).f
 let stackNames = wanted ?? (level === 'full' ? Object.keys(cfg.stacks) : stacksTouched(changed, cfg));
 for (const n of stackNames) if (!cfg.stacks[n]) fail(2, `알 수 없는 스택 "${n}" (harness.json.stacks: ${Object.keys(cfg.stacks).join(', ')})`);
 const steps = level === 'full' ? ['compile', 'lint', 'build', 'test', 'extra'] : ['compile', 'lint'];
-const probes = ((state && state.dod) || []).filter(d => d.probe && !d.human);
+// held_out 프로브는 full 에서만 돈다 — commit 게이트(maker 가 보는 축)에서는 SKIPPED 로 남겨 "본 적 없는 검증" 을 유지한다
+const probes = ((state && state.dod) || []).filter(d => d.probe && !d.human && (level === 'full' || !d.held_out));
+const heldOut = ((state && state.dod) || []).filter(d => d.probe && !d.human && d.held_out && level !== 'full');
 const humans = ((state && state.dod) || []).filter(d => d.human || !d.probe);
 
 if (flag('--dry-run')) {
-  const plan = { level, branch, keys: parsed ? parsed.keys : [], changed_files: changed.length, stacks: Object.fromEntries(stackNames.map(n => [n, Object.fromEntries(steps.map(s => [s, cfg.stacks[n][s] ?? null]))])), dod_probes: probes.map(d => ({ id: d.id, probe: d.probe, cwd: d.cwd ?? null })), dod_human: humans.map(d => d.id), shell: resolveShell(cfg).name };
+  const plan = { level, branch, keys: parsed ? parsed.keys : [], changed_files: changed.length, stacks: Object.fromEntries(stackNames.map(n => [n, Object.fromEntries(steps.map(s => [s, cfg.stacks[n][s] ?? null]))])), dod_probes: probes.map(d => ({ id: d.id, probe: d.probe, cwd: d.cwd ?? null })), dod_held_out: heldOut.map(d => d.id), dod_human: humans.map(d => d.id), shell: resolveShell(cfg).name };
   console.log(json ? JSON.stringify(plan, null, 2) : `[gate] dry-run ${level}\n` + JSON.stringify(plan, null, 2));
   process.exit(0);
 }
@@ -141,7 +143,7 @@ for (const d of probes) {
   logChunks.push(`\n## dod ${d.id} $ ${d.probe}\n## exit=${r.status} ${r.seconds}s → ${d.last}${reasons.length ? ' (' + reasons.join('; ') + ')' : ''}\n${r.out.slice(0, 200_000)}\n`);
 }
 results.dod = dodFail ? 'FAIL' : dodPass ? 'PASS' : 'SKIPPED';
-const dodSummary = `${dodPass}/${probes.length}${humans.length ? ` (human ${humans.length} 제외)` : ''}`;
+const dodSummary = `${dodPass}/${probes.length}${humans.length ? ` (human ${humans.length} 제외)` : ''}${heldOut.length ? ` (held-out ${heldOut.length} 은 full 에서만)` : ''}`;
 
 // 로그 기록
 const logDir = join(configRoot, cfg.runtime_dir, 'gate');

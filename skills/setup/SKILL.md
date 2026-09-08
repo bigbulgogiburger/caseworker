@@ -3,7 +3,7 @@ name: setup
 description: >-
   프로젝트에 caseworker 를 설치·점검·업그레이드하는 스킬 — 스택 자동 감지 →
   트래커 선택(기본 local, 의존성 0) → harness.json 작성(멱등) → 마켓플레이스/플러그인
-  등록 → 전제 체크리스트 → 위반 주입 5종으로 게이트가 실제로 작동하는지 실측 확인까지
+  등록 → 전제 체크리스트 → 위반 주입 6종으로 게이트가 실제로 작동하는지 실측 확인까지
   한 번에 진행한다.
   사용자가 "하네스 설치", "하네스 설정", "하네스 셋업", "이 프로젝트에 caseworker
   붙여줘", "게이트 설정해줘", "harness.json 만들어줘", "트래커 바꿔줘", "v2 에서
@@ -97,19 +97,20 @@ node "<P>/scripts/setup.mjs" check --json
 
 항목별 `{id, ok, detail, failClosedStage}` — node·git·Git Bash(win32)·codex CLI·harness.json 스키마 유효성·`gate.mjs --commit --dry-run`·`gate.mjs --full --dry-run`. **`ok:false` 여도 설치를 막지 않는다** — 그 항목이 물고 있는 단계를 "fail-closed" 로 그대로 보고한다(예: codex CLI 없음 → verify 단계는 codex 를 건너뛰고 sonnet 폴백만 뜬다는 사실을 미리 알린다).
 
-## 4. inject — 위반 주입 5종
+## 4. inject — 위반 주입 6종
 
 ```bash
 node "<P>/scripts/setup.mjs" inject --json
 ```
 
-`{cases[{case, expected, got, ok}]}` — 임시 clone 에서 돌리므로 원본 저장소는 건드리지 않는다. **한 케이스라도 `ok:false` 면 설치 실패로 보고한다.** 5종의 정의·기대 출력은 [references/injection.md](references/injection.md).
+`{cases[{case, expected, got, ok}]}` — 임시 clone 에서 돌리므로 원본 저장소는 건드리지 않는다. **한 케이스라도 `ok:false` 면 설치 실패로 보고한다.** 6종의 정의·기대 출력은 [references/injection.md](references/injection.md).
 
 | case | 한 줄 |
 |------|------|
 | `branch-pattern` | 패턴 밖 브랜치의 코드 커밋이 막히나 |
 | `commit-without-gate` | 게이트 없이 커밋이 막히나 |
 | `powershell-commit-without-gate` | **같은 커밋을 PowerShell 툴로 시도해도 막히나** — 셸 툴 한쪽만 보는 훅은 다른 셸로 그냥 뚫린다(실측 구멍). `hooks.json` matcher 와 `commit-gate.mjs` 의 `SHELL_TOOLS` 가 같은 집합이어야 통과한다 |
+| `protected-file-edit` | **`harness.json.protected` 글롭의 파일을 Edit 로 고치려 하면 막히나**(`PROTECTED`) — 테스트·DoD 자산을 고쳐서 초록을 만드는 경로. protected 가 비어 있으면 임시 글롭으로 훅만 실측하고 `detail` 에 남긴다 |
 | `commit-after-gate` | 게이트를 통과한 뒤에는 실제로 풀리나(과차단 아님) |
 | `push-without-full-gate` | 경량 게이트만으로 push 가 막히나 |
 
@@ -150,7 +151,7 @@ node "<P>/scripts/cases.mjs" list                  # 이슈 목록
 ## References
 
 - [references/stack-defaults.md](references/stack-defaults.md) — 스택별 기본 게이트 명령 + 흔한 보정
-- [references/injection.md](references/injection.md) — 위반 주입 5종 + 헤드리스/worktree 확인 절차
+- [references/injection.md](references/injection.md) — 위반 주입 6종 + 헤드리스/worktree 확인 절차
 - [references/upgrade.md](references/upgrade.md) — v2 → v3 → caseworker 매핑표
 - `trackers/_contract.md`(플러그인 루트) — 트래커 어댑터 계약(direct/router · op 모양 · 상태 5종)
 

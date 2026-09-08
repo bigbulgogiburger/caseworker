@@ -191,6 +191,7 @@ function suggestConfig(root, stacks) {
     stacks,
     docs_only_paths: [...DEFAULTS.docs_only_paths],
     fingerprint_exclude: [...DEFAULTS.fingerprint_exclude],
+    protected: [],
     review: { ...DEFAULTS.review },
     models: { ...DEFAULTS.models },
     wiki: { ...DEFAULTS.wiki },
@@ -300,7 +301,7 @@ function mergeSettings(root, { marketplace, plugin, repo }) {
   return { path: '.claude/settings.json', changed, added, error: null };
 }
 
-const GITIGNORE_LINES = ['.claude/harness.env.local', '.claude/runtime/'];
+const GITIGNORE_LINES = ['.claude/harness.env.local', '.claude/runtime/', '.loop/session.local.json'];
 
 function ensureGitignore(root) {
   const file = join(root, '.gitignore');
@@ -614,6 +615,13 @@ function probeFile(cfg) {
   return null;
 }
 
+/** 글롭 하나에서 그 글롭에 맞는 구체 경로 하나를 만든다(`**`→probe 디렉터리, `*`→probe). 못 만들면 null. */
+function globToProbePath(glob) {
+  const p = String(glob).replace(/\*\*\//g, 'probe/').replace(/\/\*\*$/, '/probe.txt').replace(/\*\*/g, 'probe').replace(/\*/g, 'probe').replace(/[?{}[\]!]/g, '');
+  const rel = p.replace(/^\.\//, '');
+  return rel && matchesAny(rel, [glob]) ? rel : null;
+}
+
 function runHook(dir, op = 'commit', toolName = 'Bash') {
   const command = op === 'push' ? 'git push -u origin HEAD' : 'git commit -m probe';
   const event = JSON.stringify({ tool_name: toolName, tool_input: { command }, cwd: dir });
@@ -629,6 +637,23 @@ function runHook(dir, op = 'commit', toolName = 'Bash') {
   }
   const m = new RegExp(`git ${op}: ([A-Z_]+) —`).exec(reason);
   return { decision, code: m ? m[1] : 'UNKNOWN', reason };
+}
+
+/** protect-gate.mjs 에 Edit 이벤트를 넣어 보호 파일 편집이 막히는지 실측한다. */
+function runProtectHook(dir, filePath, toolName = 'Edit') {
+  const event = JSON.stringify({ tool_name: toolName, tool_input: { file_path: join(dir, filePath), old_string: 'a', new_string: 'b' }, cwd: dir });
+  const r = run(NODE, [join(HERE, 'protect-gate.mjs')], { cwd: dir, input: event });
+  const out = r.out.trim();
+  let decision = 'pass', reason = r.err.trim();
+  if (out) {
+    try {
+      const j = JSON.parse(out);
+      if (j.hookSpecificOutput?.permissionDecision === 'deny') { decision = 'deny'; reason = j.hookSpecificOutput.permissionDecisionReason; }
+      else if (j.systemMessage) { decision = 'warn'; reason = j.systemMessage; }
+    } catch { reason = out.slice(0, 200); }
+  }
+  const m = /: ([A-Z_]+) —/.exec(reason);
+  return { decision, code: decision === 'pass' ? 'OK' : (m ? m[1] : 'UNKNOWN'), reason };
 }
 
 function cmdInject() {
@@ -689,6 +714,24 @@ function cmdInject() {
           record('push-without-full-gate', 'GATE_LEVEL', d.code, { decision: d.decision });
         }
       } else record('push-without-full-gate', 'GATE_LEVEL', 'INCONCLUSIVE', { detail: '커밋 게이트가 통과하지 못해 push 축을 볼 수 없다' });
+    }
+
+    // (e) 보호 파일 편집 → PROTECTED deny. protected 가 비어 있으면 첫 글롭을 임시로 심어 훅 자체의 실효를 본다(설정은 clone 안에서만 바뀐다).
+    {
+      const globs = Array.isArray(cfg.protected) && cfg.protected.length ? cfg.protected : null;
+      const probeGlob = globs ? globs[0] : '.caseworker-protected/**';
+      const probePath = globs ? globToProbePath(globs[0]) : '.caseworker-protected/probe.txt';
+      if (!probePath) record('protected-file-edit', 'PROTECTED', 'INCONCLUSIVE', { detail: `protected 첫 글롭(${globs[0]})에서 파일 경로를 만들 수 없다` });
+      else {
+        if (!globs) {
+          const cloneCfgPath = join(clone.dir, CONFIG_REL);
+          const raw = JSON.parse(readFileSync(cloneCfgPath, 'utf8'));
+          raw.protected = [probeGlob];
+          writeFileSync(cloneCfgPath, JSON.stringify(raw, null, 2) + '\n', 'utf8');
+        }
+        const e = runProtectHook(clone.dir, probePath);
+        record('protected-file-edit', 'PROTECTED', e.code, { decision: e.decision, detail: globs ? null : `protected 가 비어 있어 임시 글롭 ${probeGlob} 으로 실측 — 프로젝트에 실제 보호 글롭을 심을 것` });
+      }
     }
   } finally { dropProbeClone(clone.dir); }
 

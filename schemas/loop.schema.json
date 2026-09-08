@@ -1,0 +1,78 @@
+{
+  "$id": "caseworker/loop.schema.json",
+  "title": "caseworker loop config (.loop/loop.json)",
+  "description": "완성도 루프의 기계 설정. 산문 rubric 은 .loop/scorecard.md. caps 는 셋 중 하나 이상 필수 — 상한 없는 루프는 시작할 수 없다.",
+  "type": "object",
+  "required": ["version", "name", "goal", "dimensions", "stop", "caps", "safety"],
+  "properties": {
+    "version": { "type": "integer", "minimum": 1, "maximum": 1 },
+    "name": { "type": "string" },
+    "goal": { "type": "string" },
+    "dimensions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "label", "weight"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$" },
+          "label": { "type": "string" },
+          "weight": { "type": "number", "minimum": 0, "maximum": 1 },
+          "evidence": { "type": "array", "items": { "type": "string" } },
+          "probe": {
+            "type": "object",
+            "properties": {
+              "kind": { "type": "string", "enum": ["db", "http", "test", "shell", "grep"] },
+              "cmd": { "type": "string" },
+              "expect": { "type": "string" },
+              "held_out": { "type": "boolean", "description": "true 면 maker 레인에는 보이지 않고 verify/full 에서만 돈다" }
+            }
+          }
+        }
+      }
+    },
+    "env": {
+      "type": "object",
+      "properties": {
+        "start": { "type": ["string", "null"] },
+        "db": { "type": ["string", "null"] },
+        "test": { "type": ["string", "null"] },
+        "auth": { "type": ["string", "null"] }
+      }
+    },
+    "stop": {
+      "type": "object",
+      "required": ["target", "consecutive", "full_audit_every"],
+      "properties": {
+        "target": { "type": "number", "minimum": 1, "maximum": 100 },
+        "consecutive": { "type": "integer", "minimum": 1 },
+        "full_audit_every": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "caps": {
+      "type": "object",
+      "description": "max_rounds · max_cost_usd · max_minutes 중 하나 이상",
+      "properties": {
+        "max_rounds": { "type": "integer", "minimum": 1 },
+        "max_cost_usd": { "type": "number", "minimum": 0 },
+        "max_minutes": { "type": "number", "minimum": 1 }
+      }
+    },
+    "breaker": {
+      "type": "object",
+      "properties": {
+        "no_change_rounds": { "type": "integer", "minimum": 1, "description": "연속 N 라운드 파일 변경 0 이면 OPEN(ESCALATE). 기본 2" },
+        "same_error_rounds": { "type": "integer", "minimum": 1, "description": "연속 M 라운드 같은 에러 시그니처면 OPEN. 기본 3" }
+      }
+    },
+    "triage_order": { "type": ["array", "string"], "items": { "type": "string" } },
+    "safety": {
+      "type": "object",
+      "required": ["auto_merge"],
+      "properties": {
+        "scope": { "type": "string" },
+        "forbid": { "type": "array", "items": { "type": "string" } },
+        "auto_merge": { "type": "boolean", "enum": [false], "description": "항상 false — 루프는 머지하지 않는다" }
+      }
+    }
+  }
+}

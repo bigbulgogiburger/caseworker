@@ -47,6 +47,9 @@ claude plugin install caseworker@bigbulgogiburger
 | `trackers/` | 트래커 어댑터(`local` · `jira`)와 계약 문서 `_contract.md` — 코어는 이 계약만 안다 |
 | `workflows/plan.js` `implement.js` `verify.js` `recon.js` | Workflow 툴로 도는 다중 에이전트 단계(모든 레인에 model 명시) |
 | `hooks/hooks.json` → `scripts/commit-gate.mjs` | PreToolUse 훅 — 게이트·리뷰 기록이 커밋될 트리와 같을 때만 commit/push 허용. **Bash·PowerShell 둘 다 판정한다(한쪽만 보면 다른 셸로 그냥 뚫린다)** |
+| `hooks/hooks.json` → `scripts/protect-gate.mjs` | PreToolUse 훅(Edit/Write) — `harness.json.protected[]` 글롭의 파일(테스트·DoD 자산·게이트 스크립트)은 편집을 막는다. 검증 자산을 고쳐서 초록을 만드는 경로 차단 |
+| `skills/loop` · `scripts/loop.mjs` · `scripts/stop-loop.mjs` | 완성도 루프 — 0~100 점수로 측정→triage→fix→verify→재채점. 장부·STOP/ESCALATE 판정·상한(caps)·서킷브레이커는 스크립트가 계산하고, 무인 라운드는 Stop 훅이 되먹인다(세션 격리). `.loop/loop.json` |
+| `skills/graph` · `scripts/graph.mjs` | 이슈 그래프 — 의존 파도(위상정렬)·병렬 레인 파일 겹침 검사·claim·lint·ADR 반전 타임라인 |
 | `scripts/gate.mjs` | 경량(컴파일·린트·DoD) / 전량(빌드·테스트·extra) 게이트 러너 — 트리 id 와 로그 sha256 을 기록 |
 | `scripts/issue-start.mjs` `issue-set.mjs` `issue-complete.mjs` | 브랜치·상태 JSON 생명주기 + 트래커 op(착수/마감) |
 | `scripts/cases.mjs` | 트래커 CLI — direct 어댑터의 이슈를 세션 밖에서도 만들고 읽는다(`new`/`show`/`list`/`comment`/`status`/`link`/`progress`, `--json`) |
@@ -54,12 +57,13 @@ claude plugin install caseworker@bigbulgogiburger
 | `scripts/codex-review.sh` | Codex CLI 리뷰 래퍼(본문 끝으로 판정, 한도 소진을 감추지 않음) |
 | `scripts/wiki-row.mjs` `wiki-lint.mjs` `memory-index.mjs` | 마크다운 wiki 표 upsert · 정합 점검 · 자동 메모리 인덱스 |
 | `agents/` | 스택별 제네릭 리뷰어·탐색기(Spring / Vue / cross-repo) — verify 워크플로의 dispatch 대상 |
-| `schemas/` | `harness.json`(프로젝트 설정) · 상태 JSON · case 스키마 |
+| `schemas/` | `harness.json`(프로젝트 설정) · 상태 JSON · case · loop 스키마 |
 
 ## 프로젝트에 남는 것
 
 - `.claude/harness.json` — 프로젝트만 아는 값(트래커·스택·게이트 명령·브랜치 규칙·모델 티어). **절대 경로·자격증명 금지**(머신별 값은 `stacks.<name>.env_file` 이 가리키는 gitignore 파일로).
 - `.claude/runtime/issues/<branch>.json` — 브랜치 단위 상태(단계·결정·레인·DoD·게이트·리뷰 기록). `.claude/runtime/` 은 gitignore 대상.
+- `.loop/` — **완성도 루프를 켠 프로젝트만.** `loop.json`(설정)·`scorecard.md`(rubric)·`scorecard.json`·`checkpoint.json`(점수·판정 장부, 커밋 대상)과 `session.local.json`(Stop 훅 세션, gitignore).
 - `.caseworker/` — **local 트래커를 쓸 때만.** 이슈 본문·댓글·진행 로그·링크가 저장소 안 파일로 남습니다(gitignore 가 아니라 **커밋 대상**). 레이아웃은 [`trackers/local/README.md`](trackers/local/README.md).
 - `.claude/settings.json` — `extraKnownMarketplaces` / `enabledPlugins` (팀원 자동 안내).
 
