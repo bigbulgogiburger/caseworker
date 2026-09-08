@@ -28,7 +28,7 @@
 |--------|---------|---------------|----------|----------|
 | **local**(기본) | `true` | **없다.** `ops` 는 스크립트가 실행했다. 세션 밖에서 손댈 일이 있으면 `scripts/cases.mjs` | `node "<P>/scripts/cases.mjs" show <KEY[,KEY…]> --json` | `trackers.local.start_status`(기본 `in_progress`) · `done_status`(기본 `review`) |
 | **jira** | `false` | `ops` 를 `tool` 힌트대로 MCP 로 수행 | `getJiraIssue`(cloudId 는 `getAccessibleAtlassianResources` 로 먼저) | `trackers.jira.start_transition`(기본 `In Progress`) · `done_transition`(기본 `QA`) |
-| **github** | — | **미구현(2차)** — `trackers/github/adapter.mjs` 가 아직 없다. `tracker: "github"` 을 넣으면 `NO_TRACKER` 로 멈춘다 | (예정) `gh issue view` | (예정) `start_label`·`done_label` |
+| **github** | `true` | **없다.** `ops` 는 스크립트가 `gh` 로 실행했다(`gh auth login` 필요). 실패는 `result.ok:false` 로 보고만 | `node "<P>/scripts/cases.mjs" show <KEY> --json`(내부는 `gh issue view`) | `in_progress` = `trackers.github.start_label` 부착 · `review` = `done_label` 부착(`close_on_done` 이면 close) · `done` = close |
 
 ### jira op → MCP 도구 사상
 
@@ -48,7 +48,7 @@
 |--------|-----------|----|
 | local | `(?:[0-9a-f]{4,6}(?:\.\d+)*\|\d+)` | 해시 `HX-a3f8` · 하위 `HX-a3f8.1` · 순번 `HX-12` 도 허용 |
 | jira | `\d+` | `ABC-123` |
-| github | `\d+`(예정) | `gh-123` |
+| github | `\d+` | `GH-123`(번호 = GitHub 이슈 번호) |
 
 - 접두사는 항상 대문자로 정규화된다. local 처럼 `key_body` 에 hex 가 섞이면 본문은 소문자로 정규화된다(`normalizeKey`).
 - 다중 키의 브랜치 토큰은 `keysToken` 이 만든다 — `HX-a3f8`,`HX-b2c1` → `feat/HX-a3f8-b2c1`. 브랜치에서 키를 되읽을 때는 `key_body` 에 맞는 조각만 키가 되고, 소문자 suffix 단어(`-login`)는 무시된다.

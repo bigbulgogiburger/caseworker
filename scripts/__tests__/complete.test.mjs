@@ -204,6 +204,9 @@ test('(e) 실행 → origin 브랜치 · archive 파일 · 원래 상태 파일 
   assert.equal(typeof j.summary.timing.total_s, 'number', 'summary.timing.total_s');
   assert.ok(j.summary.timing.stage_offsets_s && !('start' in j.summary.timing.stage_offsets_s), 'stage_offsets_s 는 start 를 뺀 단계별 첫 도달 초');
   assert.deepEqual(j.summary.dod_human_pending, ['D2']);
+  assert.match(j.memory_candidate, /^\.claude\/runtime\/memory-candidates\/feat-ABC-1-.*\.md$/);
+  const cand = readFileSync(join(dir, j.memory_candidate), 'utf8');
+  assert.ok(cand.includes('ABC-1') && cand.includes('사람 확인 미완 DoD: D2') && cand.includes('승격'), cand);
   assert.equal(j.summary.gate.level, 'full');
   assert.equal(j.summary.review.blockers_open, 0);
 });

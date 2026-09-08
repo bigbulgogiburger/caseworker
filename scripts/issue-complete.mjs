@@ -7,7 +7,7 @@
 // 사용: node scripts/issue-complete.mjs [--dry-run] [--no-push] [--cwd <dir>] [--json]
 // 종료 코드: 0 통과(또는 dry-run) · 1 거부·push 실패 · 2 하네스 미설치/설정 오류
 // 거부는 stderr 한 줄로 사유 코드를 준다: `[caseworker] complete: <CODE> — <사유>`
-import { existsSync, readFileSync, readdirSync, renameSync, unlinkSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, renameSync, unlinkSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { locateProject, loadConfig, parseBranch, branchSlug, statePath, readState, writeState, matchesAny } from './lib/config.mjs';
 import { currentBranch, git, stagedFiles, unstagedFiles, untrackedFiles } from './lib/git.mjs';
@@ -254,8 +254,33 @@ for (const f of sidecars) {
 // ---------- 트래커 op 실행(direct) / 위임(router) ----------
 const trackerOut = await runPhaseOps(tracker, 'complete', keys, trackerCtx, { comment, branch });
 
+// ---------- 메모리 후보(사람이 승격) ----------
+// 이 이슈에서 남은 결정·리뷰·사람 확인·소요를 한 장으로 — 자동 메모리에 바로 쓰지 않는다(승격은 사람 또는 라우터의 명시 단계).
+const candDir = join(configRoot, cfg.runtime_dir, 'memory-candidates');
+mkdirSync(candDir, { recursive: true });
+const candPath = join(candDir, `${archiveName}.md`);
+const decisions = (state.decisions ?? []).map(d => `${d.q ?? '?'} → ${d.a ?? '?'}`);
+const cand = [
+  `# 메모리 후보 — ${keys.join(', ')} (${branch})`,
+  '',
+  `- 마감: ${at} · push ${pushed ? '완료' : '생략'} · 아카이브 ${archiveRel}`,
+  `- 게이트: ${resultLine}`,
+  `- 리뷰: r${reviewSummary.round ?? '?'} · 델타 ${reviewSummary.delta_passes} · codex ${reviewSummary.codex} · findings ${reviewSummary.findings ?? '?'}`,
+  humanPending.length ? `- 사람 확인 미완 DoD: ${humanPending.join(', ')}` : null,
+  `- 소요: 총 ${summary.timing?.total_s ?? '?'}s`,
+  '',
+  '## 결정(그대로 옮기지 말고 "비자명한 것" 만 승격)',
+  ...(decisions.length ? decisions.map(d => `- ${d}`) : ['- (기록된 결정 없음)']),
+  '',
+  '## 승격 절차',
+  '- 자동 메모리 파일을 직접 쓴 뒤 `memory-index.mjs --dir <memory dir> --add "<인덱스 한 줄>"`. wiki 종합은 `/caseworker:kb-ingest`.',
+  '',
+].filter(l => l !== null).join('\n');
+writeFileSync(candPath, cand, 'utf8');
+const memoryCandidate = fwd(relative(configRoot, candPath));
+
 // ---------- 출력 ----------
-const payload = { code: 'OK', branch, keys, pushed, archived_to: archiveRel, sidecars: movedSidecars, tracker: trackerOut, summary };
+const payload = { code: 'OK', branch, keys, pushed, archived_to: archiveRel, sidecars: movedSidecars, tracker: trackerOut, memory_candidate: memoryCandidate, summary };
 console.error(`[caseworker] complete: OK — ${branch} · push ${pushed ? '완료' : '생략'} · ${archiveRel}`);
 if (asJson) console.log(JSON.stringify(payload));
 else {
@@ -266,6 +291,7 @@ else {
   console.log(`  dod      프로브 ${probePass}/${probes.length} · 사람 확인 ${humans.length}건${humanPending.length ? ` (미확인 ${humanPending.join(', ')})` : ''}`);
   console.log(`  review   r${reviewSummary.round ?? '?'} · 델타 ${reviewSummary.delta_passes} · codex ${reviewSummary.codex} · blocker ${reviewSummary.blockers_open}`);
   console.log(`  tracker  ${trackerOut.name} · ${trackerOut.applied ? `op ${trackerOut.ops.length}건 실행됨` : `op ${trackerOut.ops.length}건 — 라우터가 수행`}`);
+  console.log(`  memory   후보 ${memoryCandidate} (승격은 사람)`);
   console.log(`  다음     main 머지는 사람이 — 자동 머지 금지`);
 }
 process.exit(0);

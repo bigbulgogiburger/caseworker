@@ -1,6 +1,6 @@
 # caseworker
 
-이슈 하나를 받아 **브랜치 → 결정 인터뷰 → 계획 → 구현 → 리뷰 → 게이트 → 커밋/푸시 → 마감**까지 끌고 가는 Claude Code 플러그인. 트래커는 골라 쓴다(기본 local 파일, jira, github 예정).
+이슈 하나를 받아 **브랜치 → 결정 인터뷰 → 계획 → 구현 → 리뷰 → 게이트 → 커밋/푸시 → 마감**까지 끌고 가는 Claude Code 플러그인. 트래커는 골라 쓴다(기본 local 파일, jira, github).
 
 모델은 판단만 하고, 기록(상태 JSON·게이트·리뷰)은 스크립트가 쓰며, `git commit` / `git push` 는 훅이 판정합니다 — "테스트 돌렸다" 는 말이 아니라 **git 트리 id** 가 증거입니다.
 
@@ -31,7 +31,8 @@ claude plugin install caseworker@bigbulgogiburger
 |--------|------|---------------|------|
 | `local` (기본) | direct — 스크립트가 그 자리에서 실행 | 저장소 안 파일(`.caseworker/`), 의존성 0 | [`trackers/local/README.md`](trackers/local/README.md) |
 | `jira` | router — 라우터가 Atlassian MCP 로 수행 | Jira 클라우드 | [`trackers/jira/README.md`](trackers/jira/README.md) |
-| `github` · `beads` · `gitlab` | 예정 | — | — |
+| `github` | direct | `gh` CLI(로그인 필요) | [`trackers/github/README.md`](trackers/github/README.md) — 상태는 라벨/열림닫힘으로 사상 |
+| `beads` · `gitlab` | 예정 | — | — |
 
 상태는 어떤 트래커든 **5종 고정**입니다: `open · in_progress · review · done · abandoned`. 외부 트래커의 상태 이름은 어댑터 설정(`trackers.<name>.start_transition` 등)으로 사상합니다.
 
@@ -44,7 +45,7 @@ claude plugin install caseworker@bigbulgogiburger
 | `skills/issue` | 라우터 — 지금 어느 단계인지 정하고 아래 스크립트·워크플로를 부른다 |
 | `skills/setup` | 프로젝트 설정·전제 점검·v2 잔재 이관·위반 주입 |
 | `skills/grilling` `grill-me` `new` `kb-ingest` | 결정 인터뷰 · 이슈 생성 · 지식 wiki ingest |
-| `trackers/` | 트래커 어댑터(`local` · `jira`)와 계약 문서 `_contract.md` — 코어는 이 계약만 안다 |
+| `trackers/` | 트래커 어댑터(`local` · `jira` · `github`)와 계약 문서 `_contract.md` — 코어는 이 계약만 안다 |
 | `workflows/plan.js` `implement.js` `verify.js` `recon.js` | Workflow 툴로 도는 다중 에이전트 단계(모든 레인에 model 명시) |
 | `hooks/hooks.json` → `scripts/commit-gate.mjs` | PreToolUse 훅 — 게이트·리뷰 기록이 커밋될 트리와 같을 때만 commit/push 허용. **Bash·PowerShell 둘 다 판정한다(한쪽만 보면 다른 셸로 그냥 뚫린다)** |
 | `hooks/hooks.json` → `scripts/protect-gate.mjs` | PreToolUse 훅(Edit/Write) — `harness.json.protected[]` 글롭의 파일(테스트·DoD 자산·게이트 스크립트)은 편집을 막는다. 검증 자산을 고쳐서 초록을 만드는 경로 차단 |
@@ -56,13 +57,14 @@ claude plugin install caseworker@bigbulgogiburger
 | `scripts/safe-commit.mjs` | 훅이 발화하지 않는 경로(헤드리스·무인)에서 같은 판정 후 커밋 |
 | `scripts/codex-review.sh` | Codex CLI 리뷰 래퍼(본문 끝으로 판정, 한도 소진을 감추지 않음) |
 | `scripts/wiki-row.mjs` `wiki-lint.mjs` `memory-index.mjs` | 마크다운 wiki 표 upsert · 정합 점검 · 자동 메모리 인덱스 |
+| `scripts/session-brief.mjs` · `scripts/md-lint.mjs` | SessionStart 훅(브랜치·이슈·stage·게이트 신선도·PROGRESS 꼬리·루프 현황을 세션 첫 컨텍스트로) · PostToolUse 훅(방금 쓴 .md 의 frontmatter·`[[link]]`·상대 링크·LOG 형식 경고, 차단 없음) |
 | `agents/` | 스택별 제네릭 리뷰어·탐색기(Spring / Vue / cross-repo) — verify 워크플로의 dispatch 대상 |
 | `schemas/` | `harness.json`(프로젝트 설정) · 상태 JSON · case · loop 스키마 |
 
 ## 프로젝트에 남는 것
 
 - `.claude/harness.json` — 프로젝트만 아는 값(트래커·스택·게이트 명령·브랜치 규칙·모델 티어). **절대 경로·자격증명 금지**(머신별 값은 `stacks.<name>.env_file` 이 가리키는 gitignore 파일로).
-- `.claude/runtime/issues/<branch>.json` — 브랜치 단위 상태(단계·결정·레인·DoD·게이트·리뷰 기록). `.claude/runtime/` 은 gitignore 대상.
+- `.claude/runtime/issues/<branch>.json` — 브랜치 단위 상태(단계·결정·레인·DoD·게이트·리뷰 기록). `.claude/runtime/` 은 gitignore 대상. complete 는 `.claude/runtime/memory-candidates/<slug>-<시각>.md` 에 결정·리뷰·소요를 한 장으로 남긴다 — 자동 메모리로의 승격은 사람이 한다.
 - `.loop/` — **완성도 루프를 켠 프로젝트만.** `loop.json`(설정)·`scorecard.md`(rubric)·`scorecard.json`·`checkpoint.json`(점수·판정 장부, 커밋 대상)과 `session.local.json`(Stop 훅 세션, gitignore).
 - `.caseworker/` — **local 트래커를 쓸 때만.** 이슈 본문·댓글·진행 로그·링크가 저장소 안 파일로 남습니다(gitignore 가 아니라 **커밋 대상**). 레이아웃은 [`trackers/local/README.md`](trackers/local/README.md).
 - `.claude/settings.json` — `extraKnownMarketplaces` / `enabledPlugins` (팀원 자동 안내).

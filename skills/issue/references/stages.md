@@ -91,4 +91,5 @@
 3. `wiki-row.mjs --index <wiki.index> --key <KEY> --set "<상태열>=closed" … --log <wiki.log> --event "<한 줄>" --phase closure` → `wiki-lint.mjs --docs <docs> [--memory <memory dir>] --root <프로젝트 루트>` 가 high 위반 0.
 4. 배운 것이 있으면 `/caseworker:kb-ingest` 로 wiki 종합 페이지 최대 `wiki.max_pages_per_closure` 장. 자동 메모리에 남길 것은 `memory-index.mjs --dir <memory dir> --add "<인덱스 한 줄>"`(본문 파일은 직접 쓴다).
 5. 출력의 `tracker` 블록을 start 와 같은 방식으로 처리한다([references/trackers.md](trackers.md)). direct(`applied:true`) 면 마감 op(전이 `done_status` + 마감 댓글)는 push·아카이브 뒤 **이미 실행됐다** — `result.ok === false` 인 것만 보고한다. router 면 `ops` 를 `op.tool` 대로 MCP 로 수행한다(키마다 전이 + 댓글). `--dry-run` 의 `tracker` 는 **계획**이다(`applied:false`) — 그때는 아무것도 수행하지 않는다.
-6. 보고: 브랜치·push 여부·게이트 분모·리뷰 결과·사람이 할 일(main 머지는 사람 — 자동 머지 금지).
+6. 출력의 `memory_candidate`(`<runtime>/memory-candidates/<slug>-<시각>.md`) 를 열어 **비자명한 배움만** 골라 4번의 메모리·wiki 로 승격한다. 후보 파일 자체는 runtime(gitignore) 에 남는다 — 통째로 옮기지 않는다.
+7. 보고: 브랜치·push 여부·게이트 분모·리뷰 결과·사람이 할 일(main 머지는 사람 — 자동 머지 금지).

@@ -39,7 +39,8 @@
           "project": { "type": "string" },
           "repo": { "type": "string" },
           "start_label": { "type": "string" },
-          "done_label": { "type": "string" }
+          "done_label": { "type": "string" },
+          "close_on_done": { "type": "boolean" }
         }
       }
     },
