@@ -170,16 +170,18 @@ function guessDefaultBranch(root) {
   return cur.status === 0 && cur.out ? cur.out : null;
 }
 
-function branchPatternFor(prefix) {
-  return `^(feat|fix)/(?<keys>${prefix}-\\d+(?:-\\d+)*)(?:-[a-z0-9]+)*$`;
+function branchPatternFor(prefix, body = DEFAULTS.trackers[DEFAULTS.tracker].key_body) {
+  return `^(feat|fix)/(?<keys>${prefix}-${body}(?:-${body})*)(?:-[a-z0-9]+)*$`;
 }
 
 function suggestConfig(root, stacks) {
   const prefix = guessPrefix(root);
   const branch = guessDefaultBranch(root);
   const suggested = {
-    version: 3,
+    version: 4,
     mode: 'auto',
+    tracker: DEFAULTS.tracker,
+    trackers: { [DEFAULTS.tracker]: { ...DEFAULTS.trackers[DEFAULTS.tracker] } },
     issue_prefix: prefix ?? '???',
     branch_pattern: branchPatternFor(prefix ?? '???'),
     default_branch: branch ?? DEFAULTS.default_branch,
@@ -192,7 +194,6 @@ function suggestConfig(root, stacks) {
     review: { ...DEFAULTS.review },
     models: { ...DEFAULTS.models },
     wiki: { ...DEFAULTS.wiki },
-    jira: { ...DEFAULTS.jira },
     gate: { ...DEFAULTS.gate },
   };
   const unknown = [];
@@ -578,12 +579,15 @@ function cmdUpgrade() {
     }
   }
 
-  const pluginJson = readJson(join(PLUGIN_ROOT, '.claude-plugin/plugin.json'));
-  const pluginMajor = pluginJson.ok ? Number(String(pluginJson.value.version ?? '').split('.')[0]) : null;
+  // 설정 버전은 플러그인 버전이 아니라 **스키마가 받는 범위**로 판정한다(jira-harness 시절엔 플러그인 major = 설정 version 이었지만 caseworker 0.x 는 v3·v4 설정을 둘 다 받는다)
+  const schemaJson = readJson(join(PLUGIN_ROOT, 'schemas/harness.schema.json'));
+  const vRange = schemaJson.ok ? schemaJson.value.properties?.version ?? {} : {};
+  const vMin = Number.isFinite(vRange.minimum) ? vRange.minimum : 3;
+  const vMax = Number.isFinite(vRange.maximum) ? vRange.maximum : vMin;
   const cur = readJson(join(cwd, CONFIG_REL));
   if (!cur.ok) warnings.push(`${CONFIG_REL} 이 없거나 무효 — setup write 로 만들 것`);
-  else if (pluginMajor != null && Number.isFinite(pluginMajor) && cur.value.version !== pluginMajor) {
-    warnings.push(`플러그인 v${pluginJson.value.version} 과 harness.json.version=${cur.value.version} 이 다르다 — 설정을 v${pluginMajor} 로 올릴 것`);
+  else if (!Number.isInteger(cur.value.version) || cur.value.version < vMin || cur.value.version > vMax) {
+    warnings.push(`harness.json.version=${cur.value.version} 은 이 플러그인이 받는 범위(${vMin}~${vMax}) 밖이다 — 설정을 v${vMax} 로 올릴 것`);
   }
 
   emit({ root: cwd, apply, found, moved, removedHooks, warnings }, 0, [
@@ -610,9 +614,9 @@ function probeFile(cfg) {
   return null;
 }
 
-function runHook(dir, op = 'commit') {
+function runHook(dir, op = 'commit', toolName = 'Bash') {
   const command = op === 'push' ? 'git push -u origin HEAD' : 'git commit -m probe';
-  const event = JSON.stringify({ tool_name: 'Bash', tool_input: { command }, cwd: dir });
+  const event = JSON.stringify({ tool_name: toolName, tool_input: { command }, cwd: dir });
   const r = run(NODE, [join(HERE, 'commit-gate.mjs')], { cwd: dir, input: event });
   const out = r.out.trim();
   let decision = 'pass', reason = r.err.trim();
@@ -659,6 +663,10 @@ function cmdInject() {
       writeState(sPath, newState(branch, [`${cfg.issue_prefix}-1`]));
       const b = runHook(clone.dir);
       record('commit-without-gate', 'NO_GATE', b.code, { decision: b.decision });
+
+      // (b') 같은 상태에서 PowerShell 툴로 커밋 → 같은 NO_GATE deny. 한 셸만 보는 훅은 다른 셸로 그냥 뚫린다(존재 ≠ 실효)
+      const bp = runHook(clone.dir, 'commit', 'PowerShell');
+      record('powershell-commit-without-gate', 'NO_GATE', bp.code, { decision: bp.decision });
 
       // (c) gate.mjs --commit 실행 후 → 통과(OK). 프로젝트 게이트 명령이 실제로 실패하면 GATE_FAIL 이 나온다.
       const g = run(NODE, [join(HERE, 'gate.mjs'), '--commit', '--json', '--cwd', clone.dir], { cwd: clone.dir });

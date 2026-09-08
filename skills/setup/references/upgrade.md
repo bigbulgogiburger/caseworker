@@ -1,6 +1,6 @@
-# v2 → v3 매핑표
+# v2 → v3 → caseworker 매핑표
 
-`--upgrade` 흐름(SKILL.md §6)이 참조하는 이관 대상 목록이다. **삭제가 아니라 이동** — 사용자가 되돌아볼 수 있게 `runtime/archive/v2/` 에 보존한다.
+`--upgrade` 흐름(SKILL.md §6)이 참조하는 이관 대상 목록이다. **삭제가 아니라 이동** — 사용자가 되돌아볼 수 있게 `runtime/archive/v2/` 에 보존한다. jira-harness(v3) 에서 오는 경로는 §6b 와 아래 마지막 표.
 
 ## 자동 이관(코드가 이동) — `--apply` 시 `setup.mjs` 가 처리
 
@@ -33,6 +33,20 @@
 | `llm-wiki` | `caseworker:kb-ingest` |
 
 이 표에 없는 v2 스킬(프로젝트 고유로 얹었던 것 등)이 감지되면 `warnings` 에 이름만 나열한다 — 매핑을 추측해 지어내지 않는다.
+
+## jira-harness(v3) → caseworker — 손으로 3줄
+
+**자동 변환 명령은 없다.** `setup.mjs upgrade` 는 v2 잔재만 다룬다. 아래는 사람이 직접 하는 목록이고, 1번을 안 해도 동작한다.
+
+| jira-harness (v3) | caseworker | 누가 |
+|-------------------|-----------|------|
+| `harness.json` `version: 3` + `jira: {project, start_transition, done_transition, comment_lang}` | 그대로 둬도 동작 — 로더가 `tracker: "jira"` + `trackers.jira` 로 읽는다. 정리하려면 `version: 4` · `tracker: "jira"` · 블록을 `trackers.jira` 로 이동(키 이름 동일) | 사람(선택) |
+| 트래커 = Jira 고정 | 트래커 = 어댑터(`trackers/<name>/adapter.mjs`) — 기본 `local`(파일, 의존성 0) · `jira` 는 router 어댑터 하나. 바꾸려면 SKILL.md §1b | 사람(선택) |
+| `.claude/settings.json` `enabledPlugins` 의 `jira-harness` | 끄고 `caseworker` 를 켠다 — **둘을 같이 켜면 PreToolUse 훅이 둘 다 발화해 같은 커밋을 이중 판정한다** | 사람(필수) |
+| `.claude/runtime/issues/<slug>.json`·`runtime/` 전부 | **무변경** — 같은 경로·같은 스키마. 옮기지도 지우지도 않는다 | — |
+| `/jira-harness:issue`·`/jira-harness:setup` · stderr `[jira-harness] …` · `JIRA_HARNESS_*` 환경변수 | `/caseworker:issue`·`/caseworker:setup` · `[caseworker] …` · `CASEWORKER_*` | 플러그인 |
+
+전환 직후의 **같은 세션**에서는 훅도 스킬 이름도 새 플러그인 것이 안 잡힌다 — 새 세션에서 §4 주입을 다시 돌려 실효를 확인한다.
 
 ## 문서 갱신 안내(편집은 사용자 승인 후)
 

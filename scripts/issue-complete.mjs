@@ -13,6 +13,7 @@ import { locateProject, loadConfig, parseBranch, branchSlug, statePath, readStat
 import { currentBranch, git, stagedFiles, unstagedFiles, untrackedFiles } from './lib/git.mjs';
 import { fingerprintTree } from './lib/tree.mjs';
 import { treeAccepted, sha256File } from './lib/gate-core.mjs';
+import { loadTracker, runPhaseOps } from './lib/tracker.mjs';
 
 // ---------- 인자 ----------
 const argv = process.argv.slice(2);
@@ -52,6 +53,8 @@ let cfg;
 try { cfg = loadConfig(proj.configPath); } catch (e) { reject('BAD_CONFIG', `harness.json 이 유효하지 않다: ${e.message}`, {}, 2); }
 const root = proj.toplevel;
 const configRoot = proj.configRoot;
+let tracker;
+try { tracker = await loadTracker(cfg); } catch (e) { reject('BAD_CONFIG', e.message, {}, 2); }
 
 // ---------- 브랜치·상태 ----------
 const branch = currentBranch(root);
@@ -173,7 +176,13 @@ const comment = [
   `- main 머지는 사람이 합니다 — 자동 머지하지 않습니다.`,
 ].filter(Boolean).join('\n');
 
-const jira = { transition: cfg.jira.done_transition, comment };
+// 트래커 op — dry-run 은 계획만, 실행은 push·아카이브 뒤(트래커가 죽어도 마감은 되돌리지 않는다: 기록만 남긴다)
+const trackerCtx = { cfg, root: configRoot, now: nowIso(), branch };
+const trackerDirect = !!tracker.capabilities?.direct;
+const trackerPlan = {
+  name: tracker.name, direct: trackerDirect, applied: false,
+  ops: (tracker.planOps ? tracker.planOps('complete', keys, trackerCtx, { comment, branch }) : []).map(o => ({ ...o, via: trackerDirect ? 'script' : 'router' })),
+};
 const summary = { gate: gateSummary, review: reviewSummary, dod_human_pending: humanPending, timing };
 
 // ---------- 아카이브 경로 ----------
@@ -198,7 +207,7 @@ if (dryRun) {
     code: 'OK', dry_run: true, branch, keys,
     pushed: false, archived_to: null,
     plan: { push: !noPush ? `git push -u origin ${branch}` : null, archive_to: archiveRel, sidecars: sidecars.map(f => fwd(relative(configRoot, join(issuesDir, f)))) },
-    jira, summary,
+    tracker: trackerPlan, summary,
   };
   console.error(`[caseworker] complete: OK — dry-run(변경 없음) · ${branch}`);
   if (asJson) console.log(JSON.stringify(plan));
@@ -242,8 +251,11 @@ for (const f of sidecars) {
   movedSidecars.push(fwd(relative(configRoot, dest)));
 }
 
+// ---------- 트래커 op 실행(direct) / 위임(router) ----------
+const trackerOut = await runPhaseOps(tracker, 'complete', keys, trackerCtx, { comment, branch });
+
 // ---------- 출력 ----------
-const payload = { code: 'OK', branch, keys, pushed, archived_to: archiveRel, sidecars: movedSidecars, jira, summary };
+const payload = { code: 'OK', branch, keys, pushed, archived_to: archiveRel, sidecars: movedSidecars, tracker: trackerOut, summary };
 console.error(`[caseworker] complete: OK — ${branch} · push ${pushed ? '완료' : '생략'} · ${archiveRel}`);
 if (asJson) console.log(JSON.stringify(payload));
 else {
@@ -253,7 +265,7 @@ else {
   console.log(`  gate     ${resultLine}`);
   console.log(`  dod      프로브 ${probePass}/${probes.length} · 사람 확인 ${humans.length}건${humanPending.length ? ` (미확인 ${humanPending.join(', ')})` : ''}`);
   console.log(`  review   r${reviewSummary.round ?? '?'} · 델타 ${reviewSummary.delta_passes} · codex ${reviewSummary.codex} · blocker ${reviewSummary.blockers_open}`);
-  console.log(`  jira     ${jira.transition} 전이 + 댓글 (라우터가 MCP 로 수행)`);
+  console.log(`  tracker  ${trackerOut.name} · ${trackerOut.applied ? `op ${trackerOut.ops.length}건 실행됨` : `op ${trackerOut.ops.length}건 — 라우터가 수행`}`);
   console.log(`  다음     main 머지는 사람이 — 자동 머지 금지`);
 }
 process.exit(0);

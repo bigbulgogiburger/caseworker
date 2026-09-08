@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync, renameSync, existsSync, mkdirSync, readdir
 import { join, dirname, resolve } from 'node:path';
 import { assertValid } from './schema.mjs';
 import { repoRoots } from './git.mjs';
+import { keyBody, expandKeysWith } from './tracker.mjs';
 
 export const CONFIG_REL = '.claude/harness.json';
 
@@ -17,7 +18,13 @@ export const DEFAULTS = Object.freeze({
   review: { codex: true, codex_timeout: 2400, lanes_max: 4, lanes_when: 'codex_gap', lane_model: 'sonnet', rounds_max: 2, code_review: false },
   models: { orchestrate: 'inherit', design: 'opus', recon: 'sonnet', implement: 'opus', verify: 'sonnet' },
   wiki: { index: 'docs/INDEX.md', log: 'docs/LOG.md', schema: 'docs/INDEX-SCHEMA.md', dev_guide: 'docs/{KEY}-dev-guide.md', synthesis_dir: null, max_pages_per_closure: 3, claude_md_max_lines: 150 },
-  jira: { start_transition: 'In Progress', done_transition: 'QA', comment_lang: 'ko' },
+  tracker: 'local',
+  trackers: {
+    // key_body = 이슈 키에서 접두사 뒤 부분의 정규식. local 은 해시 4~6자(hex, 하위 .n) 또는 순번 둘 다 받는다.
+    local: { dir: '.caseworker', counter: 'hash', key_body: '(?:[0-9a-f]{4,6}(?:\\.\\d+)*|\\d+)', start_status: 'in_progress', done_status: 'review' },
+    jira: { start_transition: 'In Progress', done_transition: 'QA', comment_lang: 'ko', key_body: '\\d+' },
+    github: { start_label: 'in-progress', done_label: 'review', key_body: '\\d+' },
+  },
   gate: { timeout_s: 1800, commit_budget_s: 180 },
 });
 
@@ -42,7 +49,17 @@ export function loadConfig(configPath) {
   const raw = JSON.parse(readFileSync(configPath, 'utf8'));
   assertValid(raw, 'harness', configPath);
   const cfg = { ...DEFAULTS, ...raw };
-  for (const k of ['review', 'models', 'wiki', 'jira', 'gate']) cfg[k] = { ...DEFAULTS[k], ...(raw[k] ?? {}) };
+  for (const k of ['review', 'models', 'wiki', 'gate']) cfg[k] = { ...DEFAULTS[k], ...(raw[k] ?? {}) };
+  // 트래커: 기본값 위에 프로젝트 값을 얹는다. v3(jira-harness) 의 `jira` 블록만 있는 설정은 그대로 jira 트래커로 읽는다(무변경 호환).
+  cfg.trackers = {};
+  for (const [n, d] of Object.entries(DEFAULTS.trackers)) cfg.trackers[n] = { ...d, ...(raw.trackers?.[n] ?? {}) };
+  for (const [n, v] of Object.entries(raw.trackers ?? {})) if (!cfg.trackers[n]) cfg.trackers[n] = { ...v };
+  if (raw.jira) {
+    cfg.trackers.jira = { ...cfg.trackers.jira, ...raw.jira };
+    if (!raw.tracker) cfg.tracker = 'jira';
+  }
+  if (!cfg.tracker) cfg.tracker = 'local';
+  cfg.jira = cfg.trackers.jira; // 구 코드 호환 별칭 — 새 코드는 cfg.trackers[cfg.tracker] 를 본다
   for (const [name, s] of Object.entries(cfg.stacks)) {
     cfg.stacks[name] = { compile: null, lint: null, build: null, test: null, extra: [], env_file: null, ...s };
     if (!cfg.stacks[name].paths) cfg.stacks[name].paths = s.dir === '.' ? ['**'] : [`${s.dir.replace(/\/$/, '')}/**`];
@@ -55,7 +72,7 @@ export function parseBranch(branch, cfg) {
   if (!branch) return null;
   const m = new RegExp(cfg.branch_pattern).exec(branch);
   if (!m || !m.groups?.keys) return null;
-  const keys = expandKeys(m.groups.keys, cfg.issue_prefix);
+  const keys = expandKeysWith(m.groups.keys, cfg.issue_prefix, keyBody(cfg));
   return { branch, keys, slug: branchSlug(branch) };
 }
 

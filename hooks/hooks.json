@@ -1,9 +1,9 @@
 {
-  "description": "caseworker: git commit / git push are judged against the branch state JSON (gate + review records). This is the only hook.",
+  "description": "caseworker: git commit / git push are judged against the branch state JSON (gate + review records). Both shell tools (Bash, PowerShell) are matched — matching only one leaves the other as an unguarded path. This is the only hook.",
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash",
+        "matcher": "Bash|PowerShell",
         "hooks": [
           {
             "type": "command",

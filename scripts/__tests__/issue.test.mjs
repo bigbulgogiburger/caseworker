@@ -68,10 +68,18 @@ test('start: main 에서 단일 키 → feat/ABC-1 생성 · 상태 · STARTED �
   const st = readState(stateFile(dir, 'feat-ABC-1'));
   assert.equal(st.stage, 'start');
   assert.deepEqual(st.keys, ['ABC-1']);
-  assert.ok(r.out.jira.comment.includes('feat/ABC-1'), r.out.jira.comment);
-  assert.ok(r.out.jira.comment.includes('ABC-1'), r.out.jira.comment);
-  assert.ok(r.out.jira.comment.includes('caseworker v3'), r.out.jira.comment);
-  assert.equal(r.out.jira.transition, 'In Progress');
+  // 트래커 op — 착수 전이 + 착수 댓글. 어댑터가 무엇이든 op 모양은 같다
+  const t = r.out.tracker;
+  assert.ok(t && Array.isArray(t.ops), JSON.stringify(r.out));
+  const tr = t.ops.find(o => o.op === 'transition' && o.key === 'ABC-1');
+  const cm = t.ops.find(o => o.op === 'comment' && o.key === 'ABC-1');
+  assert.ok(tr && cm, JSON.stringify(t.ops));
+  assert.ok(['in_progress', 'In Progress'].includes(tr.to), tr.to);
+  assert.ok(cm.text.includes('feat/ABC-1') && cm.text.includes('ABC-1') && cm.text.includes('caseworker'), cm.text);
+  if (t.direct) {
+    assert.equal(cm.via, 'script');
+    assert.ok(cm.result?.ok, `direct 어댑터는 그 자리에서 실행된다: ${JSON.stringify(cm.result)}`);
+  } else assert.equal(cm.via, 'router');
 });
 
 test('start: 다중 키 → feat/ABC-1-2 브랜치 하나', () => {

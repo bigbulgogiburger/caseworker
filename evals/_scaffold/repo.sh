@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# 임시 프로젝트 저장소를 만든다. 인자: <mode> = bare | issue-no-gate | issue-implement
+# 임시 프로젝트 저장소를 만든다. 인자: <mode> = bare | issue-no-gate | issue-implement | local-tracker
+#   local-tracker: v4 설정(tracker=local, prefix HX) · main 위 · 이슈 브랜치 없음 — 이슈 생성→착수 round-trip 용
 set -euo pipefail
 MODE="${1:-issue-no-gate}"
 git init -q -b main .
@@ -9,6 +10,15 @@ printf 'class App {}\n' > backend/App.java
 printf 'export default 1\n' > frontend/app.js
 printf '# docs\n' > docs/README.md
 printf '.claude/runtime/\n.claude/harness.env.local\n' > .gitignore
+if [ "$MODE" = "local-tracker" ]; then
+cat > .claude/harness.json <<'JSON'
+{ "version": 4, "mode": "auto", "tracker": "local", "issue_prefix": "HX",
+  "branch_pattern": "^(feat|fix)/(?<keys>HX-(?:[0-9a-f]{4,6}(?:\\.\\d+)*|\\d+)(?:-(?:[0-9a-f]{4,6}(?:\\.\\d+)*|\\d+))*)(?:-[a-z0-9]+)*$",
+  "stacks": { "be": { "dir": "backend", "compile": "echo compile-ok", "lint": null, "build": "echo build-ok", "test": "echo '3 tests completed'" } } }
+JSON
+git add -A && git commit -q -m init
+exit 0
+fi
 if [ "$MODE" != "bare" ]; then
 cat > .claude/harness.json <<'JSON'
 { "version": 3, "mode": "auto", "issue_prefix": "ABC",

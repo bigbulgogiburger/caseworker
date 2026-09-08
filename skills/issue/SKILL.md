@@ -1,9 +1,10 @@
 ---
 name: issue
 description: >-
-  Jira 이슈(ABC-123 꼴 키) 한 건 또는 여러 건의 개발 전 주기를 진행하는 라우터 — 브랜치·상태 JSON(start),
-  결정 인터뷰(grill), 계획 워크플로와 승인(plan), 구현(implement), Codex+워크플로 리뷰(verify),
-  컴파일·테스트 게이트(gate), 훅이 판정하는 commit/push, 마감(complete: push·wiki·Jira 전이).
+  이슈 트래커의 키(local 기본 · jira/github 어댑터 — `HX-a3f8` · `ABC-123` 꼴) 한 건 또는 여러 건의
+  개발 전 주기를 진행하는 라우터 — 브랜치·상태 JSON(start), 결정 인터뷰(grill), 계획 워크플로와 승인(plan),
+  구현(implement), Codex+워크플로 리뷰(verify), 컴파일·테스트 게이트(gate), 훅이 판정하는 commit/push,
+  마감(complete: push·wiki·트래커 전이).
   사용자가 "/caseworker:issue KEY", "KEY 시작/착수/잡아줘", "이어서 해줘", "계획 세워줘", "리뷰 돌려줘",
   "게이트/테스트 돌려줘", "커밋해줘", "push 해줘", "마무리/QA 넘겨줘/완료 처리" 라고 하거나, 현재 브랜치가
   이슈 브랜치(feat/KEY…)이면 반드시 이 스킬을 쓴다. 명시 호출이 없어도 이슈 키가 언급된 개발 요청이면
@@ -40,9 +41,11 @@ node "<P>/scripts/issue-start.mjs" --status --json
 
 ## 2. 단계 표 — 각 행의 절차는 [references/stages.md](references/stages.md) 의 같은 이름 절을 읽고 따른다
 
+트래커는 어댑터 하나다(기본 `local` — 파일, 의존성 0). 어댑터별로 라우터가 무엇을 더 해야 하는지·키 형식은 [references/trackers.md](references/trackers.md).
+
 | stage | 한 줄 | 주체 · 수단 | 끝나면 |
 |-------|------|------------|--------|
-| start | 브랜치 채택/생성 · 상태 JSON · Jira 착수(assignee·전이·댓글) | `issue-start.mjs` + Atlassian MCP 3콜 | grill (키 3개+ 또는 범위 불명이면 먼저 recon) |
+| start | 브랜치 채택/생성 · 상태 JSON · 트래커 착수(전이·댓글·본문 읽기) | `issue-start.mjs` + 트래커 op(출력 `tracker.ops` — direct 면 이미 실행됨, router 면 라우터가 MCP 로 수행) | grill (키 3개+ 또는 범위 불명이면 먼저 recon) |
 | recon | 결정 분기점만 찾는 정찰(선택) | Workflow `workflows/recon.js` (sonnet) | grill |
 | grill | 분기점을 **한 번에 하나씩** 묻고 확정 | `/caseworker:grilling` 을 그 자리에서 따른다 | `issue-set.mjs --decision` · `--stage plan` |
 | plan | dev-guide 초안 + 레인·DoD 설계 → **사용자 승인** | Workflow `workflows/plan.js` → `issue-set.mjs --merge --from plan` → AskUserQuestion | 승인 시 `.draft` 확정 · `wiki-row.mjs` forecast · `--stage implement` |
@@ -50,7 +53,7 @@ node "<P>/scripts/issue-start.mjs" --status --json
 | verify | **Codex 판정** → (Codex 가 못 채운 자리에만) 워크플로 ≤4레인 → **메인이 확정/기각** → 기록 | `codex-review.sh` → `workflows/verify.js` → `issue-set.mjs --review` | gate |
 | gate | 커밋 전 경량(컴파일·린트·DoD) / push 전 전량(빌드·테스트·extra) | `gate.mjs --commit` / `gate.mjs --full` | commit / push |
 | commit·push | 평소처럼 `git commit` / `git push` — 훅이 판정 | 훅 (`hooks/hooks.json`) · 무인은 `safe-commit.mjs` | 다음 구현 또는 complete |
-| complete | 전량 게이트·리뷰 신선 확인 → push → 상태 아카이브 → wiki closure → Jira 전이·댓글 | `issue-complete.mjs` → `wiki-row.mjs` → `wiki-lint.mjs` → MCP | 사람 머지 대기 (자동 머지 금지) |
+| complete | 전량 게이트·리뷰 신선 확인 → push → 상태 아카이브 → wiki closure → 트래커 전이·댓글 | `issue-complete.mjs` → `wiki-row.mjs` → `wiki-lint.mjs` → 트래커 op(출력 `tracker.ops` — direct 면 이미 실행됨, router 면 라우터가 MCP 로 수행) | 사람 머지 대기 (자동 머지 금지) |
 
 ## 3. 훅이 막았을 때 — 사유 코드는 stderr 의 `[caseworker] git <op>: <CODE> — …` 한 줄
 
@@ -73,7 +76,8 @@ node "<P>/scripts/issue-start.mjs" --status --json
 
 - **`--unattended`(무인)**: AskUserQuestion 을 부르지 않고 권장안을 택한다(결정·승인에 `(unattended)` 표기). 사람 게이트(human DoD·머지)에 닿으면 멈추고 보고. 커밋은 `node "<P>/scripts/safe-commit.mjs" -m "<메시지>" [--push]` — 훅과 같은 판정을 스크립트가 하고 통과할 때만 커밋한다(훅이 발화하지 않는 헤드리스 경로에서도 같은 규율).
 - **Workflow 툴이 없는 세션**: `workflows/*.js` 의 레인을 `Agent` 로 순차 실행한다(같은 프롬프트, 결과는 JSON 텍스트로 받아 직접 파싱). 모델 티어는 파일 안 `model` 값 그대로.
-- **다중 키** `ABC-696,ABC-940`: 브랜치 `feat/ABC-696-940` 하나, dev-guide 한 장, 상태 JSON 하나. Jira 콜은 키마다.
+- **트래커가 router 인데 MCP 가 없는 세션**: 코드 진행은 그대로 한다. `tracker.ops`(전이·댓글)를 수행하지 못했다는 사실을 보고에 "트래커 미반영: `<KEY>` transition(…) — MCP 도구 없음" 으로 남기고, 사람이 직접 처리하거나 MCP 연결 후 재실행하게 한다. 수행하지 못한 op 를 "완료" 로 적지 않는다.
+- **다중 키** `HX-a3f8,HX-b2c1`(jira 면 `ABC-696,ABC-940`): 브랜치 `feat/HX-a3f8-b2c1` 하나, dev-guide 한 장, 상태 JSON 하나. 트래커 op 는 키마다 만들어진다.
 - **worktree**: 어느 worktree 에서 실행해도 상태·로그는 메인 저장소의 runtime 에 쓰인다 — 같은 브랜치의 게이트 기록을 worktree 와 메인이 공유한다.
 - `harness.json` 의 게이트 명령이 틀렸으면 이 스킬에서 고치지 않는다 — `/caseworker:setup` 의 일이다.
 

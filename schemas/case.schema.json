@@ -1,0 +1,21 @@
+{
+  "$id": "caseworker/case.schema.json",
+  "title": "caseworker local case (<trackers.local.dir>/cases/<KEY>/issue.json)",
+  "description": "local 트래커의 이슈 한 건. 본문은 body.md, 사람용 진행 로그는 PROGRESS.md, 댓글은 comments/<시각>.md 로 분리(파일당 1건 = 병렬 쓰기 충돌 없음).",
+  "type": "object",
+  "required": ["version", "key", "title", "type", "status", "created_at", "updated_at"],
+  "properties": {
+    "version": { "type": "integer", "minimum": 1, "maximum": 1 },
+    "key": { "type": "string" },
+    "title": { "type": "string" },
+    "type": { "type": "string", "enum": ["task", "bug", "story", "epic", "subtask"] },
+    "status": { "type": "string", "enum": ["open", "in_progress", "review", "done", "abandoned"] },
+    "parent": { "type": ["string", "null"] },
+    "labels": { "type": "array", "items": { "type": "string" } },
+    "assignee": { "type": ["string", "null"] },
+    "branch": { "type": ["string", "null"], "description": "issue-start 가 채운다" },
+    "created_at": { "type": "string" },
+    "updated_at": { "type": "string" },
+    "closed_at": { "type": ["string", "null"] }
+  }
+}

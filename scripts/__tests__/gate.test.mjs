@@ -38,8 +38,8 @@ function makeRepo({ mode = 'auto', harness = true, defaultBranchPolicy = null } 
   g(dir, 'commit', '-q', '-m', 'init');
   return dir;
 }
-function hook(dir, command, cwd = dir) {
-  const r = sh(NODE, [join(SCRIPTS, 'commit-gate.mjs')], cwd, JSON.stringify({ tool_name: 'Bash', tool_input: { command }, cwd }));
+function hook(dir, command, cwd = dir, toolName = 'Bash') {
+  const r = sh(NODE, [join(SCRIPTS, 'commit-gate.mjs')], cwd, JSON.stringify({ tool_name: toolName, tool_input: { command }, cwd }));
   assert.equal(r.status, 0, `훅 프로세스는 항상 exit 0: ${r.stderr}`);
   const out = r.stdout.trim();
   if (!out) return { decision: 'pass', reason: r.stderr.trim() };
@@ -92,6 +92,20 @@ test('harness.json 없는 저장소 · mode=off 는 통과, 비-git 명령은 �
   const r = hook(off, 'ls -la');
   assert.equal(r.decision, 'pass');
   assert.ok(!r.reason.includes('[caseworker]'), '비-git 명령엔 태그 출력 없음');
+});
+
+test('셸 툴 둘 다 판정 — PowerShell 로 git commit 해도 같은 게이트 · & git / git.exe 도 감지 · 비-셸 툴은 판정 안 함', () => {
+  const dir = makeRepo();
+  edit(dir, 'backend/App.java', 'class App { int x; }\n'); g(dir, 'add', '-A');
+  const ps = hook(dir, 'git commit -m code', dir, 'PowerShell');
+  assert.equal(ps.decision, 'deny', 'PowerShell 툴의 커밋도 막혀야 한다(한 셸만 보면 다른 셸로 뚫린다)');
+  assert.ok(ps.reason.includes('BRANCH_PATTERN'), ps.reason);
+  assert.equal(hook(dir, '& git commit -m code', dir, 'PowerShell').decision, 'deny');
+  assert.equal(hook(dir, 'git.exe commit -m code', dir, 'PowerShell').decision, 'deny');
+  assert.equal(detectGitOp('Set-Location backend; git commit -m x'), 'commit');
+  const other = hook(dir, 'git commit -m code', dir, 'Edit');
+  assert.equal(other.decision, 'pass');
+  assert.ok(!other.reason.includes('[caseworker]'), '비-셸 툴엔 판정 없음');
 });
 
 test('docs-only 커밋은 main 에서도 통과 · 코드 커밋은 브랜치 패턴 밖이면 deny(adopt) · suggest 는 warn', () => {

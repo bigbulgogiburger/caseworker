@@ -2,6 +2,8 @@
 
 라벨 / 날짜 / 설명 포맷 / 우선순위 등 부가 필드의 컨벤션을 정리한다.
 
+> 필드 이름(`priority`·`duedate`·Components)은 Jira 기준이지만 **라벨 표기·인수조건·제목 규칙은 트래커 무관**이다 — local 트래커에서도 그대로 쓴다. 다만 local case 스키마에는 우선순위·기한·컴포넌트 필드가 없으니(`schemas/case.schema.json`), 그 항목들은 본문이나 라벨로 표현한다. 등록 절차는 [`create.md`](create.md) · [`bulk-document-flow.md`](bulk-document-flow.md).
+
 ## 라벨 (Labels)
 
 ### 기본 원칙

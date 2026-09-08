@@ -86,8 +86,11 @@ test('detect: 모노레포 루트+1단계 하위에서 gradle·npm 스택을 찾
   assert.equal(stacks.frontend.test, 'npx vitest run', 'vitest 는 npm run test 가 아니라 직접 실행');
   assert.equal(stacks.frontend.compile, null, 'typecheck 스크립트가 없으면 compile 은 비운다');
 
-  assert.equal(suggested.version, 3);
+  assert.equal(suggested.version, 4);
   assert.equal(suggested.mode, 'auto');
+  assert.equal(suggested.tracker, 'local', '기본 트래커는 의존성 0 인 local');
+  assert.ok(suggested.trackers?.local?.key_body, 'local 트래커 키 규칙이 설정에 남는다');
+  assert.ok(!('jira' in suggested), 'v4 제안에는 jira 블록이 없다(trackers.jira 로 옮겨간다)');
   assert.equal(suggested.issue_prefix, '???', '접두사를 모르면 인터뷰 대상으로 남긴다');
   assert.ok(suggested.branch_pattern.includes('(?<keys>???-'), suggested.branch_pattern);
   assert.equal(suggested.default_branch, 'main');
@@ -363,7 +366,9 @@ test('inject: 임시 clone 에서 실측 — 패턴 밖 deny · 게이트 없음
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.equal(r.value.clone, true);
   const byCase = Object.fromEntries(r.value.cases.map(c => [c.case, c]));
-  assert.deepEqual(Object.keys(byCase).sort(), ['branch-pattern', 'commit-after-gate', 'commit-without-gate', 'push-without-full-gate']);
+  assert.deepEqual(Object.keys(byCase).sort(), ['branch-pattern', 'commit-after-gate', 'commit-without-gate', 'powershell-commit-without-gate', 'push-without-full-gate']);
+  assert.equal(byCase['powershell-commit-without-gate'].got, 'NO_GATE', `PowerShell 툴 커밋도 같은 게이트: ${JSON.stringify(byCase['powershell-commit-without-gate'])}`);
+  assert.equal(byCase['powershell-commit-without-gate'].decision, 'deny');
   assert.equal(byCase['branch-pattern'].got, 'BRANCH_PATTERN', JSON.stringify(byCase['branch-pattern']));
   assert.equal(byCase['branch-pattern'].decision, 'deny');
   assert.equal(byCase['commit-without-gate'].got, 'NO_GATE', JSON.stringify(byCase['commit-without-gate']));

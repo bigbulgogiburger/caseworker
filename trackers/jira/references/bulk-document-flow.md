@@ -1,6 +1,8 @@
-# 벌크 모드: 문서 → Epic → Issue → Subtask
+# jira 트래커 — 벌크 모드: 문서 → Epic → Issue → Subtask
 
 문서(주차 계획, RFC, 기획안 등)를 받아 계층화된 Jira 이슈 트리로 변환한다.
+
+> 트래커 중립 절차(문서 정독 → 트리 제안 → 일괄 승인 → 순서대로 등록 → 부모 링크)는 [`skills/new/references/bulk-flow.md`](../../../skills/new/references/bulk-flow.md) 에 있다. 이 문서는 그중 **Jira MCP 호출 세부**만 다룬다. 단일 이슈 등록은 [`create.md`](create.md).
 
 ## 입력 가정
 
@@ -32,7 +34,7 @@
 
 ### 3. 스택 감지
 
-단일 모드와 동일.
+단일 모드와 동일 — [`skills/new/references/stack-detection.md`](../../../skills/new/references/stack-detection.md).
 
 ### 4. 트리 설계
 
@@ -88,7 +90,7 @@ mcp__atlassian__searchJiraIssuesUsingJql
   maxResults: 20
 ```
 
-프로젝트 키는 harness가 감지한 실제 값(`.claude/harness.json` 의 `issue_prefix` 또는 SKILL.md § 2 절차로 확정한 값)으로 치환한다 — 위 `"ABC"` 는 예시.
+프로젝트 키는 harness 가 감지한 실제 값(`.claude/harness.json` 의 `issue_prefix` 또는 [`create.md`](create.md) § 2 절차로 확정한 값)으로 치환한다 — 위 `"ABC"` 는 예시.
 
 매치되는 에픽이 있으면:
 - 사용자에게 보여주고 "이 에픽 아래에 매달까요, 새 에픽을 만들까요?" 확인.

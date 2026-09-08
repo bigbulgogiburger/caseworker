@@ -56,7 +56,8 @@ function bodyLineCount(body) {
 }
 
 function referencePaths(body) {
-  const re = /references\/[A-Za-z0-9_\-./]+\.md/g;
+  // 스킬 자신의 references/ 만 — `trackers/jira/references/x.md` 처럼 다른 디렉터리 아래의 references 는 이 스킬의 참조가 아니다
+  const re = /(?<![A-Za-z0-9_\-./])references\/[A-Za-z0-9_\-./]+\.md/g;
   return [...new Set(body.match(re) ?? [])];
 }
 

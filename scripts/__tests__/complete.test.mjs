@@ -189,13 +189,18 @@ test('(e) 실행 → origin 브랜치 · archive 파일 · 원래 상태 파일 
   assert.ok(readdirSync(archiveDir(dir)).some(f => f.endsWith('.plan.json')), '사이드카도 아카이브로 이동');
   assert.ok(!existsSync(join(dir, '.claude/runtime/issues/feat-ABC-1.plan.json')));
 
-  assert.equal(j.jira.transition, 'QA');
-  assert.ok(j.jira.comment.includes('feat/ABC-1'), j.jira.comment);
-  assert.ok(j.jira.comment.includes('be(') && j.jira.comment.includes('fe('), `스택별 분모: ${j.jira.comment}`);
-  assert.ok(j.jira.comment.includes('프로브 1/1 PASS') && j.jira.comment.includes('사람 확인 1건 SKIPPED'), j.jira.comment);
-  assert.ok(j.jira.comment.includes('라운드 2') && j.jira.comment.includes('델타 패스 1') && j.jira.comment.includes('ok(120s)'), j.jira.comment);
-  assert.ok(j.jira.comment.includes('main 머지는 사람이'), j.jira.comment);
-  assert.ok(j.jira.comment.includes('- 소요: 총'), `소요 시간 줄이 댓글에 남는다: ${j.jira.comment}`);
+  const tr = j.tracker.ops.find(o => o.op === 'transition' && o.key === 'ABC-1');
+  const cm = j.tracker.ops.find(o => o.op === 'comment' && o.key === 'ABC-1');
+  assert.ok(tr && cm, JSON.stringify(j.tracker));
+  assert.ok(['review', 'QA'].includes(tr.to), tr.to);
+  const comment = cm.text;
+  assert.ok(comment.includes('feat/ABC-1'), comment);
+  assert.ok(comment.includes('be(') && comment.includes('fe('), `스택별 분모: ${comment}`);
+  assert.ok(comment.includes('프로브 1/1 PASS') && comment.includes('사람 확인 1건 SKIPPED'), comment);
+  assert.ok(comment.includes('라운드 2') && comment.includes('델타 패스 1') && comment.includes('ok(120s)'), comment);
+  assert.ok(comment.includes('main 머지는 사람이'), comment);
+  assert.ok(comment.includes('- 소요: 총'), `소요 시간 줄이 댓글에 남는다: ${comment}`);
+  if (j.tracker.direct) assert.ok(cm.result?.ok, `direct 어댑터는 마감 op 를 그 자리에서 실행한다: ${JSON.stringify(cm.result)}`);
   assert.equal(typeof j.summary.timing.total_s, 'number', 'summary.timing.total_s');
   assert.ok(j.summary.timing.stage_offsets_s && !('start' in j.summary.timing.stage_offsets_s), 'stage_offsets_s 는 start 를 뺀 단계별 첫 도달 초');
   assert.deepEqual(j.summary.dod_human_pending, ['D2']);

@@ -14,7 +14,34 @@
     "version": {
       "type": "integer",
       "minimum": 3,
-      "maximum": 3
+      "maximum": 4,
+      "description": "3 = jira-harness 호환(jira 블록) · 4 = tracker/trackers"
+    },
+    "tracker": {
+      "type": "string",
+      "enum": ["local", "jira", "github", "beads", "gitlab"],
+      "description": "이슈 트래커 어댑터(trackers/<name>/adapter.mjs). 기본 local. v3 설정에 jira 블록만 있으면 jira 로 읽는다"
+    },
+    "trackers": {
+      "type": "object",
+      "description": "어댑터별 설정. key_body = 키 접두사 뒤 정규식(문자열)",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "key_body": { "type": "string" },
+          "dir": { "type": "string" },
+          "counter": { "type": "string", "enum": ["hash", "seq"] },
+          "start_status": { "type": "string" },
+          "done_status": { "type": "string" },
+          "start_transition": { "type": "string" },
+          "done_transition": { "type": "string" },
+          "comment_lang": { "type": "string" },
+          "project": { "type": "string" },
+          "repo": { "type": "string" },
+          "start_label": { "type": "string" },
+          "done_label": { "type": "string" }
+        }
+      }
     },
     "mode": {
       "type": "string",

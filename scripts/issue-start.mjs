@@ -16,6 +16,7 @@ const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 import { currentBranch, git, unstagedFiles, untrackedFiles } from './lib/git.mjs';
 import { fingerprintTree } from './lib/tree.mjs';
 import { treeAccepted } from './lib/gate-core.mjs';
+import { loadTracker, keyPattern, normalizeKey, keysToken, runPhaseOps } from './lib/tracker.mjs';
 
 // ---------- 인자 ----------
 const argv = process.argv.slice(2);
@@ -130,24 +131,20 @@ const cfg = loadConfig(proj.configPath);
 const root = proj.toplevel;
 const configRoot = proj.configRoot;
 
-const rawKeys = keysArg.split(',').map(k => k.trim().toUpperCase()).filter(Boolean);
-const keyPattern = new RegExp(`^${cfg.issue_prefix}-\\d+$`);
-const badKeys = rawKeys.filter(k => !keyPattern.test(k));
-if (!rawKeys.length || badKeys.length) fail(2, `키 형식이 올바르지 않다: ${badKeys.join(', ') || '(비어 있음)'} — 기대 형식 ${cfg.issue_prefix}-숫자`);
+let tracker;
+try { tracker = await loadTracker(cfg); } catch (e) { fail(2, e.message); }
+const rawKeys = keysArg.split(',').map(k => normalizeKey(k, cfg)).filter(Boolean);
+const kp = keyPattern(cfg);
+const badKeys = rawKeys.filter(k => !kp.test(k));
+if (!rawKeys.length || badKeys.length) fail(2, `키 형식이 올바르지 않다: ${badKeys.join(', ') || '(비어 있음)'} — 기대 형식 ${cfg.issue_prefix}-<${tracker.name} 키> (${kp})`);
 const keys = rawKeys;
-
-/** "ABC-696","ABC-940" → "ABC-696-940" (같은 접두사 — issue_prefix 검증을 통과했으므로 항상 같다) */
-function keysToken(ks) {
-  const nums = ks.map(k => k.split('-')[1]);
-  return [ks[0], ...nums.slice(1)].join('-');
-}
 
 const currentB = currentBranch(root);
 if (!currentB) fail(2, '현재 브랜치를 확인할 수 없다(detached HEAD)');
 
 let targetBranch, scenario;
 if (currentB === cfg.default_branch) {
-  targetBranch = cfg.branch_template.replace('{keys}', keysToken(keys));
+  targetBranch = cfg.branch_template.replace('{keys}', keysToken(keys, cfg));
   const exists = git(['show-ref', '--verify', '--quiet', `refs/heads/${targetBranch}`], { cwd: root, allowFail: true }).status === 0;
   const co = git(['checkout', ...(exists ? [] : ['-b']), targetBranch], { cwd: root, allowFail: true });
   if (co.status !== 0) fail(1, `git checkout 실패(${targetBranch}): ${co.err}`);
@@ -191,5 +188,15 @@ if (existsSync(wfSrc)) {
 }
 
 const relPath = relative(configRoot, sPath).replace(/\\/g, '/');
-const comment = `[caseworker v3] 이슈 ${keys.join(', ')} 작업을 브랜치 \`${targetBranch}\` 에서 착수합니다.`;
-emit({ code, branch: targetBranch, keys, slug, state_path: relPath, created, workflows_dir: relative(configRoot, wfDir).replace(/\\/g, '/'), workflows: workflowsCopied, jira: { transition: cfg.jira.start_transition, comment } });
+const comment = `[caseworker] 이슈 ${keys.join(', ')} 작업을 브랜치 \`${targetBranch}\` 에서 착수합니다.`;
+
+// 트래커 op — direct 어댑터(local 등)는 여기서 바로 실행되고, router 어댑터(jira 등)는 op 목록만 나간다(라우터가 MCP 로 수행).
+// RESUMED(상태가 이미 있음)면 착수 op 를 다시 보내지 않는다.
+const ctx = { cfg, root: configRoot, now: new Date().toISOString(), branch: targetBranch };
+if (created && tracker.capabilities?.direct && typeof tracker.ensure === 'function') for (const k of keys) tracker.ensure(k, ctx);
+const trackerOut = created
+  ? await runPhaseOps(tracker, 'start', keys, ctx, { comment, branch: targetBranch })
+  : { name: tracker.name, direct: !!tracker.capabilities?.direct, ops: [], applied: false, note: 'RESUMED — 착수 op 생략' };
+if (typeof tracker.readHint === 'function') trackerOut.read_hint = tracker.readHint(keys);
+else if (tracker.capabilities?.direct) trackerOut.read_hint = { command: `node "${join(PLUGIN_ROOT, 'scripts', 'cases.mjs').replace(/\\/g, '/')}" show ${keys.join(',')} --json --cwd "${configRoot.replace(/\\/g, '/')}"` };
+emit({ code, branch: targetBranch, keys, slug, state_path: relPath, created, workflows_dir: relative(configRoot, wfDir).replace(/\\/g, '/'), workflows: workflowsCopied, tracker: trackerOut });

@@ -131,7 +131,8 @@ export function decide(op, cwd, opts = {}) {
 /** Bash 명령 문자열에서 git commit/push 를 찾는다. 없으면 null. */
 export function detectGitOp(command) {
   if (!command) return null;
-  const re = /(?:^|[;&|(]\s*|\n\s*)git\s+(?:(?:-C\s+\S+|-c\s+\S+|--git-dir=\S+|--work-tree=\S+|--no-pager)\s+)*(commit|push)\b/m;
+  // Bash 와 PowerShell 둘 다 본다 — PowerShell 의 `& git …`(호출 연산자)·`git.exe` 도 같은 op 다
+  const re = /(?:^|[;&|(]\s*|\n\s*)git(?:\.exe)?\s+(?:(?:-C\s+\S+|-c\s+\S+|--git-dir=\S+|--work-tree=\S+|--no-pager)\s+)*(commit|push)\b/m;
   const m = re.exec(command);
   return m ? m[1] : null;
 }

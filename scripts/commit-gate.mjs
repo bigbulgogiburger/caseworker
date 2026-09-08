@@ -1,17 +1,22 @@
 #!/usr/bin/env node
-// commit-gate.mjs — PreToolUse(Bash) 훅 본체. stdin 으로 훅 이벤트 JSON 을 받아 git commit / git push 를 판정한다.
+// commit-gate.mjs — PreToolUse(Bash|PowerShell) 훅 본체. stdin 으로 훅 이벤트 JSON 을 받아 git commit / git push 를 판정한다.
 // 판정 순서는 설계 문서 §3.5 (lib/gate-core.mjs). 통과면 stdout 에 아무것도 내지 않는다(stderr 한 줄만).
 // 판정 중 예외는 fail-open 이 아니라 deny 다 — 판정할 수 없으면 커밋을 막는 편이 안전하다.
+//
+// ⚠ 셸 툴은 둘이다(Bash · PowerShell). 한쪽만 보면 다른 쪽으로 커밋할 때 게이트가 아예 돌지 않는다(jira-harness 3.x 실측 구멍).
+//   hooks/hooks.json 의 matcher 와 아래 SHELL_TOOLS 는 항상 같은 집합이어야 한다 — setup inject 의 powershell 케이스가 이것을 실측한다.
 import { existsSync, readFileSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
 import { decide, detectGitOp, effectiveCwd } from './lib/gate-core.mjs';
+
+const SHELL_TOOLS = new Set(['Bash', 'PowerShell']);
 
 let raw = '';
 try { raw = readFileSync(0, 'utf8'); } catch { raw = ''; }
 let event = {};
 try { event = raw ? JSON.parse(raw) : {}; } catch { event = {}; }
 
-if (event.tool_name && event.tool_name !== 'Bash') process.exit(0);
+if (event.tool_name && !SHELL_TOOLS.has(event.tool_name)) process.exit(0);
 const command = event.tool_input?.command ?? '';
 const op = detectGitOp(command);
 if (!op) process.exit(0);
