@@ -269,6 +269,8 @@ Herdr 는 pane 안의 코딩 에이전트를 인식해 `idle·working·blocked·
 
 함정 4종(실측)을 코드에 고정했다: ① `agent prompt` 가 성공 응답을 내고도 제출이 안 된다 → 상태로 판정 ② claude·grok pane 은 스크롤백 회수가 안 된다 → 파일 ③ Windows codex 기본 샌드박스는 파일을 못 읽는다 → `kind_args.codex` 기본값에 `--sandbox danger-full-access` ④ claude 첫 턴 뒤 "Teach auto mode" 다이얼로그 → `agent_blocked` 면 화면을 읽어 그 문구일 때만 `esc`, 그 외 다이얼로그는 사람에게.
 
+**역할 상주(A 단계).** Herdr 안에서는 하네스의 단위가 세션이 아니라 워크스페이스다. driver(Claude) 는 판단·결정·훅만 갖고, **reviewer**(`review.codex_via: "herdr"` — 상주 codex 를 있으면 재사용, 없으면 띄움, 이슈가 바뀌면 `/new`)와 **runner**(`herdr-lanes.mjs gate` — 게이트를 runner pane 에서, 완료 표식 `GATE_DONE_<nonce>` 만 기다림)가 긴 출력을 driver 컨텍스트 밖으로 가져간다. Codex 판정의 계약(`CODEX_RESULT` 마지막 줄)은 exec 경로와 같아 라우터가 경로를 구분하지 않고, `limit` 을 감추지 않는다. 다음 단계(B: crew 매니페스트 `herdr.roles` · C: implement 레인을 worktree 워크스페이스로 · D: 무인 루프의 verifier 를 codex pane 으로)는 A 의 수치(`summary.timing` 으로 verify 라운드 시간·driver 토큰을 exec 방식과 이슈 3개에서 비교)를 본 뒤 간다.
+
 Workflow 를 버리지 않은 이유: 스키마 강제 출력·resume 캐시·토큰 예산은 Herdr 에 없다. Herdr 레인은 "다른 모델·보이는 화면·세션과 독립" 이 필요한 자리(리뷰, 긴 무인 라운드)에만 쓴다.
 
 ---

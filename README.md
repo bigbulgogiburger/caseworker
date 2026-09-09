@@ -59,7 +59,7 @@ claude plugin install caseworker@bigbulgogiburger
 | `scripts/wiki-row.mjs` `wiki-lint.mjs` `memory-index.mjs` | 마크다운 wiki 표 upsert · 정합 점검 · 자동 메모리 인덱스 |
 | `scripts/session-brief.mjs` · `scripts/md-lint.mjs` | SessionStart 훅(브랜치·이슈·stage·게이트 신선도·PROGRESS 꼬리·루프 현황을 세션 첫 컨텍스트로) · PostToolUse 훅(방금 쓴 .md 의 frontmatter·`[[link]]`·상대 링크·LOG 형식 경고, 차단 없음) |
 | `scripts/lib/herdr.mjs` · `scripts/herdr-report.mjs` · `herdr-plugin.toml` · `scripts/herdr-plugin.mjs` | [Herdr](https://herdr.dev) 연동 — 이슈·stage·게이트·리뷰·루프를 사이드바 토큰(`$case $stage $gate $review $loop`)으로, 사람 게이트(게이트 FAIL·리뷰 blocker·훅 거부·루프 정지·승인 대기)는 토스트로. 같은 저장소가 Herdr 플러그인이기도 하다(팝업 status/gate/loop/new · `worktree.created` 이벤트로 자동 착수). Herdr 밖에서는 전부 무동작 |
-| `scripts/herdr-lanes.mjs` | Herdr pane 의 **다른 에이전트**(codex·grok·claude…)를 레인으로 돌리는 실행기 — `harness.json.herdr.lanes` 가 `verify` 면 리뷰 레인, `all` 이면 implement·loop maker/verifier 까지. 결과는 사이드카 JSON 파일로 회수(alt-screen 스크롤백을 믿지 않는다) |
+| `scripts/herdr-lanes.mjs` | Herdr pane 을 역할로 쓰는 실행기 — **reviewer**(`review.codex_via: "herdr"`: 상주 codex 를 재사용해 Codex 판정, 이슈가 바뀌면 `/new`) · **runner**(`gate --full`: 게이트를 runner pane 에서, 로그는 driver 밖) · **lane**(`herdr.lanes: "verify"`: grok 등 추가 심판). 결과는 사이드카 JSON 파일로 회수(alt-screen 스크롤백을 믿지 않는다) |
 | `agents/` | 스택별 제네릭 리뷰어·탐색기(Spring / Vue / cross-repo) — verify 워크플로의 dispatch 대상 |
 | `schemas/` | `harness.json`(프로젝트 설정) · 상태 JSON · case · loop 스키마 |
 
