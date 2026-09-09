@@ -136,9 +136,11 @@ caseworker/
 │   ├── issue-start.mjs  issue-set.mjs  issue-complete.mjs  cases.mjs
 │   ├── graph.mjs  loop.mjs  stop-loop.mjs
 │   ├── session-brief.mjs  md-lint.mjs
+│   ├── herdr-report.mjs  herdr-plugin.mjs  herdr-lanes.mjs   # Herdr 연동(§3-8)
 │   ├── wiki-row.mjs  wiki-lint.mjs  memory-index.mjs  hygiene.mjs  codex-review.sh
 │   ├── lib/  dev/wf-sim.mjs
-│   └── __tests__/            # 실제 임시 git 저장소에서 도는 통합 테스트 16 spec(+ 측정 스크립트 1)
+│   └── __tests__/            # 실제 임시 git 저장소에서 도는 통합 테스트 18 spec(+ 측정 스크립트 1)
+├── herdr-plugin.toml         # 같은 저장소가 Herdr 플러그인이다(스크립트 공유)
 ├── trackers/{_contract.md, local/, github/, jira/}
 ├── skills/{issue, setup, new, loop, graph, grilling, grill-me, kb-ingest}
 ├── workflows/{recon,plan,implement,verify}.js
@@ -249,6 +251,26 @@ caseworker/
 
 v3 와의 관계: `version`·`mode`·`issue_prefix`·`branch_pattern`·`stacks` 는 여전히 필수이고, 구 `jira` 블록은 그대로 읽힌다. `tracker` 를 안 쓰고 `jira` 블록만 있으면 트래커는 `jira` 로 해석된다.
 
+### 3-8. Herdr 연동 — 보이는 하네스, 그리고 다른 에이전트를 레인으로
+
+Herdr 는 pane 안의 코딩 에이전트를 인식해 `idle·working·blocked·done` 을 추적하는 터미널 워크스페이스 매니저다(소켓 API, 플러그인 규격, worktree 워크스페이스). caseworker 의 병렬은 전부 Workflow 툴의 in-process 서브에이전트라 **사람 눈에 안 보이고, 세션과 함께 죽고, Claude 모델만** 쓴다. Herdr 는 정확히 그 반대편이다. 원칙 세 개로 붙였다.
+
+1. **밖에서는 무동작.** `HERDR_PANE_ID` 가 없으면 모든 연동 지점이 `{ok:false}` 를 돌려주고 끝난다. 훅·게이트·루프 어디에 심어도 Herdr 없는 사용자에게는 코드가 없는 것과 같다.
+2. **lifecycle 권위는 건드리지 않는다.** `pane report-agent`(idle/working/blocked)는 통합 훅·화면 매니페스트의 것이다. 우리는 표시 전용인 `report-metadata`(토큰 `$case $stage $gate $review $loop $event` + 상태 라벨)와 `notification show` 만 쓴다. blocked 다이얼로그에 자동으로 답하지 않는다.
+3. **결과는 파일로 받는다.** Herdr 레인(다른 에이전트 pane)의 산출물은 alt-screen 스크롤백에서 긁지 않고, 레인 프롬프트가 지정한 사이드카 JSON 경로에서 읽는다 — implement 레인의 사이드카 계약과 같다.
+
+| 조각 | 무엇 | 언제 |
+|------|------|------|
+| `lib/herdr.mjs` | `herdrEnv`·`herdr(args)`(3초 타임아웃, throw 없음)·`buildStatus`(훅과 같은 신선도 축 = 인덱스 지문 + `treeAccepted`)·`herdrReport`·`herdrPing` | 모든 연동의 바닥 |
+| 자동 보고 | `issue-start`(stage) · `issue-set --stage/--review` · `gate.mjs`(FAIL→request, full PASS→done) · `loop.mjs record`(STOP→done, ESCALATE→request) · `issue-complete`(성공/거부) · `commit-gate` deny | 스크립트가 상태를 쓴 직후 |
+| `herdr-report.mjs` | 라우터가 사람 게이트(계획 승인·human DoD) 직전에 부르는 CLI · `--status` 는 토큰 계산만 | stages.md |
+| `herdr-plugin.toml` + `herdr-plugin.mjs` | Herdr 플러그인: 팝업 5(status·gate×2·loop·new) · 액션 2(report·adopt) · 이벤트 `worktree.created` → `issue-start --adopt`. 문맥 키는 0.9.0 실측(`focused_pane_cwd`·`workspace_cwd`·`focused_pane_id`·`workspace_id`) | `herdr plugin install owner/repo` |
+| `herdr-lanes.mjs` | 레인 실행기 — pane split → `agent start --kind` → 프롬프트 파일 → `agent prompt --wait` → **`agent get` 이 working 인지 확인, 아니면 `send-keys enter`**(미제출 함정) → `agent wait` → 사이드카 JSON 회수 → (선택) pane close. verify 부터 붙였다: codex·grok 이 Claude 의 diff 를 심판하면 maker≠verifier 가 모델 차원에서 성립한다 | `harness.json.herdr.lanes` |
+
+함정 4종(실측)을 코드에 고정했다: ① `agent prompt` 가 성공 응답을 내고도 제출이 안 된다 → 상태로 판정 ② claude·grok pane 은 스크롤백 회수가 안 된다 → 파일 ③ Windows codex 기본 샌드박스는 파일을 못 읽는다 → `kind_args.codex` 기본값에 `--sandbox danger-full-access` ④ claude 첫 턴 뒤 "Teach auto mode" 다이얼로그 → `agent_blocked` 면 화면을 읽어 그 문구일 때만 `esc`, 그 외 다이얼로그는 사람에게.
+
+Workflow 를 버리지 않은 이유: 스키마 강제 출력·resume 캐시·토큰 예산은 Herdr 에 없다. Herdr 레인은 "다른 모델·보이는 화면·세션과 독립" 이 필요한 자리(리뷰, 긴 무인 라운드)에만 쓴다.
+
 ---
 
 ## 4. 선행 하네스 대비 델타
@@ -281,7 +303,8 @@ v3 와의 관계: `version`·`mode`·`issue_prefix`·`branch_pattern`·`stacks` 
 | 3 | `skills/loop` · `loop.mjs` · `stop-loop.mjs` · caps 필수 · 브레이커 · held-out · `protected[]` + `protect-gate.mjs` | 완료 |
 | 4 | `session-brief.mjs` · `md-lint.mjs` · `PROGRESS.md` 규약 · memory 후보 추출 | 완료 |
 | 5 | `github` 어댑터 · `cases.mjs` · README · marketplace · `setup --upgrade` | 완료 |
-| 6 | beads · gitlab 어댑터 · SQLite 그래프 백엔드 옵션 · CI 레시피 | **2차** |
+| 5b | Herdr 연동(§3-8) — 사이드바 토큰·사람 게이트 토스트 · Herdr 플러그인 매니페스트 · verify 레인 실행기 | 완료 |
+| 6 | beads · gitlab 어댑터 · SQLite 그래프 백엔드 옵션 · CI 레시피 · Herdr 레인을 implement·loop 까지(`herdr.lanes=all` 은 스키마만 예약) | **2차** |
 
 ### 계획했으나 구현하지 않은 것 (정직하게 남긴다)
 
@@ -325,6 +348,7 @@ v3 와의 관계: `version`·`mode`·`issue_prefix`·`branch_pattern`·`stacks` 
 | 등급 | 링크 |
 |------|------|
 | A | code.claude.com/docs/en/{hooks, workflows, plugins-reference, goal} · 로컬 `claude plugin eval --help` |
+| A | herdr.dev/docs/{agents, socket-api, plugins, configuration, session-state} · 로컬 `herdr 0.9.0` — `herdr --skill`·`api schema`·`plugin link`·`plugin action invoke` 로 매니페스트 필드(`[[events]].on`)와 문맥 JSON 키를 실측 |
 | A | anthropic.com/engineering/effective-harnesses-for-long-running-agents · writing-tools-for-agents · effective-context-engineering-for-ai-agents |
 | A | github.com/steveyegge/beads · github.com/MrLesk/Backlog.md · github.com/radutopala/ticket · github.com/rpostulart/Claude-Project-Tracker · mattpocock/skills `issue-tracker-local.md` |
 | A | github.com/obra/superpowers · github.com/github/spec-kit · github.com/affaan-m/everything-claude-code · anthropics/claude-plugins-official {feature-dev, code-review, hookify, claude-security, ralph-loop} · anthropics/claude-code #40117 |

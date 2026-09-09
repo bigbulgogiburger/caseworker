@@ -1,6 +1,6 @@
 {
   "name": "caseworker",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "Issue-driven development harness for Claude Code with pluggable trackers (local files by default, Jira, GitHub): issue router, saved workflows, fail-closed commit/push gate hook (Bash and PowerShell), bookkeeping scripts.",

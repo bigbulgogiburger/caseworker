@@ -8,6 +8,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
 import { decide, detectGitOp, effectiveCwd } from './lib/gate-core.mjs';
+import { herdrPing } from './lib/herdr.mjs';
 
 const SHELL_TOOLS = new Set(['Bash', 'PowerShell']);
 
@@ -36,6 +37,8 @@ try {
 const tag = `[caseworker] git ${op}: ${verdict.code} — ${verdict.reason}`;
 if (verdict.decision === 'deny') {
   process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: tag } }));
+  // Herdr 토스트(Herdr 밖이면 무동작) — 무인 pane 에서 훅이 막았을 때 사람이 사이드바에서 알아채게. 판정은 이미 끝났으니 실패해도 무관.
+  herdrPing(existsSync(cwd) ? cwd : baseCwd, `git ${op} 거부 ${verdict.code}`, { title: `git ${op} 거부 — ${verdict.code}`, body: verdict.reason, sound: 'request' });
 } else if (verdict.decision === 'warn') {
   process.stdout.write(JSON.stringify({ systemMessage: `⚠ ${tag} (mode=suggest 라 차단하지 않음)` }));
 } else {

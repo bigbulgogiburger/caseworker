@@ -18,6 +18,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync, unlinkS
 import { join, resolve } from 'node:path';
 import { locateProject } from './lib/config.mjs';
 import { validate, loadSchema } from './lib/schema.mjs';
+import { herdrPing } from './lib/herdr.mjs';
 
 const argv = process.argv.slice(2);
 const flags = {}; const pos = [];
@@ -154,6 +155,8 @@ switch (cmd) {
     const nextCk = { ...j.next, rounds: [...ck.rounds, round], started_at: ck.started_at };
     writeJson(F.ck, nextCk);
     writeJson(F.sc, { version: 1, round: j.roundIndex, mode, active_total: active, domains, blocked: r.blocked, at: r.at });
+    // Herdr 사이드바(Herdr 밖이면 무동작). 루프가 멈추면(STOP/ESCALATE) 사람을 부른다 — 무인 라운드는 사람이 화면을 안 보고 있다.
+    herdrPing(root, `loop R${j.roundIndex} ${active} ${j.verdict}`, j.verdict !== 'CONTINUE' ? { title: `loop ${j.verdict} R${j.roundIndex}`, body: j.reasons.join(' · '), sound: j.verdict === 'STOP' ? 'done' : 'request' } : null);
     const human = [`[loop] R${j.roundIndex} ${mode} active=${active} → ${j.verdict} — ${j.reasons.join(' · ')}`];
     if (r.blocked.length) human.push(`  blocked: ${r.blocked.join(', ')} (분모 제외 · surface)`);
     if (nextCk.next) human.push(`  next: R${nextCk.next.round} ${nextCk.next.mode} (${nextCk.next.why})`);

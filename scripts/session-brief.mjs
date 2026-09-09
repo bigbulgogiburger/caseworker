@@ -7,8 +7,11 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join, relative, resolve, isAbsolute } from 'node:path';
 import { locateProject, loadConfig, parseBranch, branchSlug, statePath, readState } from './lib/config.mjs';
-import { currentBranch, headTree } from './lib/git.mjs';
+import { currentBranch } from './lib/git.mjs';
 import { trackerName, trackerConfig } from './lib/tracker.mjs';
+import { fingerprintTree } from './lib/tree.mjs';
+import { treeAccepted } from './lib/gate-core.mjs';
+import { gateOverall } from './lib/herdr.mjs';
 
 export const BRIEF_MAX = 3500;
 const argv = process.argv.slice(2);
@@ -44,9 +47,11 @@ export function buildBrief(cwd) {
     const st = readState(sPath);
     if (!st) L.push(`키 ${parsed.keys.join(', ')} · 상태 JSON 없음 → /caseworker:issue ${parsed.keys[0]} 로 start`);
     else {
-      const tree = headTree(cwd);
-      const gate = st.gate ? `${st.gate.level ?? '?'} ${st.gate.result ?? '?'}${tree && st.gate.tree === tree ? '(신선)' : '(낡음 — 재실행 필요)'}` : '없음';
-      const review = st.review ? `r${st.review.round ?? '?'} blocker ${st.review.blockers_open ?? '?'}${tree && st.review.tree === tree ? '(신선)' : '(낡음)'}` : '없음';
+      // 신선도는 훅과 같은 축(인덱스 지문 + treeAccepted) — HEAD 트리와 비교하면 항상 "낡음" 으로 보였다
+      let fresh = () => false;
+      try { const tree = fingerprintTree({ cwd: proj.toplevel, base: 'index', excludes: cfg.fingerprint_exclude }); fresh = rec => treeAccepted(rec, tree, cfg, proj.toplevel).ok; } catch { /* 지문 실패 = 낡음 */ }
+      const gate = st.gate ? `${st.gate.level ?? '?'} ${gateOverall(st.gate)}${fresh(st.gate.tree) ? '(신선)' : '(낡음 — 재실행 필요)'}` : '없음';
+      const review = st.review ? `r${st.review.round ?? '?'} blocker ${st.review.blockers_open ?? '?'}${fresh(st.review.tree) ? '(신선)' : '(낡음)'}` : '없음';
       L.push(`키 ${st.keys.join(', ')} · stage ${st.stage} · 게이트 ${gate} · 리뷰 ${review}`);
       const humans = (st.dod ?? []).filter(d => d.human && d.last !== 'PASS').map(d => d.id);
       if (humans.length) L.push(`사람 확인 DoD 미완: ${humans.join(', ')}`);

@@ -15,6 +15,7 @@ export const DEFAULTS = Object.freeze({
   runtime_dir: '.claude/runtime',
   docs_only_paths: ['docs/**', '**/*.md'],
   protected: [],
+  herdr: { enabled: true, notify: true, lanes: 'off', kinds: { verify: ['codex'], implement: ['claude'], maker: ['claude'], verifier: ['codex'] }, kind_args: {}, lane_timeout_s: 900, close_panes: false },
   fingerprint_exclude: ['.claude/runtime/**', '**/*.draft'],
   review: { codex: true, codex_timeout: 2400, lanes_max: 4, lanes_when: 'codex_gap', lane_model: 'sonnet', rounds_max: 2, code_review: false },
   models: { orchestrate: 'inherit', design: 'opus', recon: 'sonnet', implement: 'opus', verify: 'sonnet' },
@@ -50,8 +51,9 @@ export function loadConfig(configPath) {
   const raw = JSON.parse(readFileSync(configPath, 'utf8'));
   assertValid(raw, 'harness', configPath);
   const cfg = { ...DEFAULTS, ...raw };
-  for (const k of ['review', 'models', 'wiki', 'gate']) cfg[k] = { ...DEFAULTS[k], ...(raw[k] ?? {}) };
+  for (const k of ['review', 'models', 'wiki', 'gate', 'herdr']) cfg[k] = { ...DEFAULTS[k], ...(raw[k] ?? {}) };
   // 트래커: 기본값 위에 프로젝트 값을 얹는다. v3(jira-harness) 의 `jira` 블록만 있는 설정은 그대로 jira 트래커로 읽는다(무변경 호환).
+  cfg.herdr.kinds = { ...DEFAULTS.herdr.kinds, ...(raw.herdr?.kinds ?? {}) };
   cfg.trackers = {};
   for (const [n, d] of Object.entries(DEFAULTS.trackers)) cfg.trackers[n] = { ...d, ...(raw.trackers?.[n] ?? {}) };
   for (const [n, v] of Object.entries(raw.trackers ?? {})) if (!cfg.trackers[n]) cfg.trackers[n] = { ...v };
