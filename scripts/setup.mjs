@@ -278,6 +278,11 @@ function validateConfig(cfg) {
 }
 
 function mergeSettings(root, { marketplace, plugin, repo }) {
+  // Codex installs plugins through its CLI; Claude's JSON settings are not TOML.
+  if (CONFIG_REL.startsWith('.codex/')) {
+    return { path: null, changed: false, added: [], error: null,
+      instructions: `codex plugin marketplace add ${repo}_codex; codex plugin add ${plugin}@${marketplace}-codex; then review and trust the plugin hooks with /hooks` };
+  }
   const file = join(root, '.claude/settings.json');
   const cur = readJson(file);
   if (!cur.ok && !cur.missing) return { path: '.claude/settings.json', changed: false, added: [], error: `settings.json 을 읽을 수 없다: ${cur.error}` };
@@ -371,7 +376,7 @@ function cmdWrite() {
   const payload = { config: { path: norm(file), status }, diff, settings, gitignore };
   emit(payload, settings.error ? 1 : 0, [
     `[setup] harness.json ${status}`,
-    `[setup] settings.json ${settings.error ?? (settings.changed ? `병합: ${settings.added.join(', ')}` : '변경 없음')}`,
+    `[setup] ${settings.instructions ?? `settings.json ${settings.error ?? (settings.changed ? `병합: ${settings.added.join(', ')}` : '변경 없음')}`}`,
     `[setup] .gitignore ${gitignore.added.length ? `추가: ${gitignore.added.join(', ')}` : '변경 없음'}`,
   ]);
 }
