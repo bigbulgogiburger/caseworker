@@ -21,7 +21,7 @@ description: >-
 
 ## 0. 원칙
 
-- **이 스킬은 판단(인터뷰·승인 확인·보고)만 한다.** harness.json·settings.json·.gitignore 쓰기는 전부 `scripts/setup.mjs` 가 한다 — issue 스킬과 같은 원칙이다.
+- **이 스킬은 판단(인터뷰·승인 확인·보고)만 한다.** harness.json·.gitignore 쓰기는 전부 `scripts/setup.mjs` 가 한다 — issue 스킬과 같은 원칙이다.
 - 코드·설정 파일로 알 수 있는 값은 절대 묻지 않는다. 인터뷰는 `detect` 가 못 정한 값만.
 - 위반 주입에서 하나라도 실패하면 "게이트가 심겨 있다"와 "게이트가 작동한다"는 다른 말이라고 보고한다 — 존재 ≠ 실효.
 - **트래커는 어댑터 하나일 뿐이다.** 코어는 트래커 이름을 모르고 `harness.json.tracker` 가 가리키는 `trackers/<name>/adapter.mjs` 만 부른다(계약: `trackers/_contract.md`). 기본값은 외부 의존성이 0인 `local` 이고, Jira 는 그 중 하나다 — 어느 트래커든 **사용자가 고른다. 추측해 등록하지 않는다.**
@@ -88,7 +88,7 @@ node "<P>/scripts/setup.mjs" write --config <json 파일|-> [--marketplace <name
 ```
 
 - `existing` 이 있었으면 먼저 diff 를 보여주고 승인 받은 뒤 `--force` 로 재호출한다(승인 없이 덮어쓰지 않는다)
-- 이 한 호출이 `.codex/settings.json` 의 `extraKnownMarketplaces`/`enabledPlugins` 병합과 `.gitignore` 항목(런타임·env_file)까지 함께 처리한다 — 다른 파일을 손으로 건드리지 않는다
+- 이 호출은 `.codex/harness.json`과 `.gitignore`를 관리한다. 플러그인은 출력의 `settings.instructions`에 나온 Codex CLI 명령으로 설치하고 `/hooks`에서 현재 훅을 검토·신뢰한다. `.codex/config.toml`을 JSON으로 쓰지 않는다.
 - 스키마상 `version` 은 3(구 `jira` 블록 호환) 또는 4(`tracker`/`trackers`). **신규 설치는 4** 로 쓴다 — `detect` 의 `suggested` 가 이미 4다. 3 으로 남은 기존 설정은 §6b 를 볼 것
 
 ## 3. check — 전제 체크리스트
@@ -97,7 +97,7 @@ node "<P>/scripts/setup.mjs" write --config <json 파일|-> [--marketplace <name
 node "<P>/scripts/setup.mjs" check --json
 ```
 
-항목별 `{id, ok, detail, failClosedStage}` — node·git·Git Bash(win32)·codex CLI·harness.json 스키마 유효성·`gate.mjs --commit --dry-run`·`gate.mjs --full --dry-run`. **`ok:false` 여도 설치를 막지 않는다** — 그 항목이 물고 있는 단계를 "fail-closed" 로 그대로 보고한다(예: codex CLI 없음 → verify 단계는 codex 를 건너뛰고 sonnet 폴백만 뜬다는 사실을 미리 알린다).
+항목별 `{id, ok, detail, failClosedStage}` — node·git·Git Bash(win32)·codex CLI·harness.json 스키마 유효성·`gate.mjs --commit --dry-run`·`gate.mjs --full --dry-run`. **`ok:false` 여도 설치를 막지 않는다** — 그 항목이 물고 있는 단계를 "fail-closed" 로 그대로 보고한다(예: codex CLI 없음 → verify 단계는 codex 를 건너뛰고 가용 Codex 리뷰 실행기가 없다는 사실을 미리 알린다).
 
 ## 4. inject — 위반 주입 6종
 
@@ -133,7 +133,7 @@ node "<P>/scripts/setup.mjs" inject --json
 
 1. **harness.json 은 그대로 둬도 동작한다.** `version: 3` + `jira` 블록만 있는 설정은 로더가 그대로 `jira` 트래커로 읽는다(`tracker` 가 없으면 `jira` 로 잡고, `jira` 블록을 `trackers.jira` 에 얹는다). **아무것도 안 고쳐도 된다.**
 2. 정리하고 싶으면 세 줄: `version` 을 `4` 로, `tracker: "jira"` 를 추가, `jira: {...}` 블록을 `trackers: { "jira": {...} }` 로 옮긴다(키 이름은 그대로 — `project`·`start_transition`·`done_transition`·`comment_lang`). 그러고 `setup.mjs check` 로 스키마 유효성만 다시 본다. 트래커 자체를 `local` 로 바꾸려는 것이면 §1b 로 돌아간다 — 키 체계가 달라지므로 `issue_prefix`·`branch_pattern`·`trackers.local.key_body` 를 함께 본다.
-3. **`.codex/settings.json` 의 `enabledPlugins` 에서 `jira-harness` 를 끄고 `caseworker` 를 켠다.** 둘을 같이 켜두면 **훅이 둘 다 발화한다** — 같은 `git commit` 을 두 개의 PreToolUse 훅이 각자 판정해 사유가 엇갈리거나 이중 차단된다. 하나만 켠다.
+3. Codex의 플러그인 관리에서 기존 jira-harness와 caseworker가 동시에 활성화되지 않게 한다. `codex plugin --help`로 현재 지원되는 관리 명령을 확인한다. 변경 후 `/hooks`에서 caseworker 훅의 현재 정의를 검토·신뢰하고 위반 커밋이 실제로 차단되는지 확인한다.
 
 상태 JSON·`runtime/` 은 **그대로 쓴다** — 경로(`.codex/runtime/issues/<slug>.json`)도 스키마도 같다. 옮기거나 지우지 않는다. 바뀌는 것은 훅·스킬 네임스페이스(`/jira-harness:issue` → `$caseworker:issue`)와 stderr 사유 줄의 태그(`[jira-harness]` → `[caseworker]`)뿐이다. 매핑표는 [references/upgrade.md](references/upgrade.md).
 
