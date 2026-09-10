@@ -35,9 +35,18 @@ if (!existsSync(join(SRC, '.claude-plugin/plugin.json'))) {
   process.exit(2);
 }
 
+// 치환 규칙이 플러그인 이름을 알아야 하므로 매니페스트를 먼저 읽는다.
+const srcPlugin = JSON.parse(readFileSync(join(SRC, '.claude-plugin/plugin.json'), 'utf8'));
+const NAME = srcPlugin.name;
+const VERSION = srcPlugin.version;
+const MKT = MARKETPLACE || `${NAME}-codex`;
+
 // ── 치환 규칙 ───────────────────────────────────────────────────────────
 // find 는 리터럴 문자열. min 은 이 규칙이 최소 몇 번 발화해야 하는가 —
 // 못 미치면 실패한다. why 는 보고에 그대로 찍힌다.
+//
+// ⚠ min 에 플러그인 하나에만 있는 문자열을 걸지 말 것 — 이 생성기는 두 소스가 공유한다.
+//   한쪽에만 있는 문자열에 min:1 을 걸면 다른 쪽 빌드가 통째로 죽는다(실제로 죽었다).
 const RULES = [
   { find: '.claude/harness.json', to: '.codex/harness.json', min: 1,
     why: '하네스 설정 위치 — Codex 는 .codex/ 아래를 본다' },
@@ -47,8 +56,11 @@ const RULES = [
     why: '환경 파일 및 fixture 경로도 Codex 디렉터리로 통일' },
   { find: "'.claude'", to: "'.codex'", min: 1,
     why: '디렉터리 생성 및 탐색 제외 목록' },
-  { find: '/caseworker:', to: '$caseworker:', min: 1,
-    why: 'Codex 스킬 명시 호출 표기' },
+  // Codex 에는 슬래시·달러 같은 스킬 호출 문법이 **없다**(실측: 프롬프트의 <skills_instructions>
+  // 는 "SKILL.md 에 든 지시문" 이라고만 하고 호출 문법을 주지 않는다). 다만 스킬 이름 자체는
+  // `<plugin>:<skill>` 로 등재된다(`jira-harness:grill-me` 확인). 그래서 슬래시만 뗀다.
+  { find: `/${NAME}:`, to: `${NAME}:`, min: 0,
+    why: 'Claude 의 슬래시 표기 → Codex 가 실제로 등재하는 <plugin>:<skill> 이름' },
   { find: 'AskUserQuestion', to: 'request_user_input', min: 1,
     why: 'Codex 질문 도구 (모드 제한은 Codex 오버레이 참고)' },
   { find: '${CLAUDE_PLUGIN_ROOT}', to: '${PLUGIN_ROOT}', min: 1,
@@ -61,6 +73,9 @@ const TEXT_EXT = new Set(['.mjs', '.js', '.json', '.md', '.sh', '.toml', '.yml',
 
 // 복사 대상 — agents/ workflows/ hooks/ .claude-plugin/ 은 따로 처리한다.
 const COPY_DIRS = ['skills', 'scripts', 'schemas', 'evals', 'trackers', 'docs'];
+// 변환기 자신은 Codex 플러그인의 payload 가 아니다 — 게다가 RULES 의 리터럴이 자기 자신에
+// 치환돼 망가진 사본이 실린다. 소스 쪽 개발 도구는 소스에만 둔다.
+const SKIP_BASENAMES = new Set(['build-codex.mjs']);
 const COPY_FILES = ['README.md', 'LICENSE', 'package.json', 'herdr-plugin.toml', '.gitattributes'];
 
 // ── 유틸 ────────────────────────────────────────────────────────────────
@@ -112,10 +127,7 @@ function tomlLiteral(s) {
 const tomlStr = (s) => JSON.stringify(String(s));
 
 // ── 소스 읽기 ───────────────────────────────────────────────────────────
-const srcPlugin = readJson(join(SRC, '.claude-plugin/plugin.json'));
-const NAME = srcPlugin.name;
-const VERSION = srcPlugin.version;
-const MKT = MARKETPLACE || `${NAME}-codex`;
+// (srcPlugin·NAME·VERSION·MKT 는 치환 규칙보다 먼저 읽었다 — 위쪽 참조)
 const REPO = basename(OUT);
 
 console.log(`[build-codex] ${NAME} v${VERSION}`);
@@ -152,6 +164,7 @@ for (const d of COPY_DIRS) {
   const from = join(SRC, d);
   if (!existsSync(from)) continue;
   for (const f of walk(from)) {
+    if (SKIP_BASENAMES.has(basename(f))) continue;
     const rel = join('plugins', NAME, relative(SRC, f));
     if (TEXT_EXT.has(extname(f))) {
       emit(rel, substitute(readFileSync(f, 'utf8')));

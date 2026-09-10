@@ -1,6 +1,6 @@
 # Codex 설치 및 검증
 
-8개 스킬은 $caseworker:issue 등의 명시 호출 또는 자연어로 선택한다. 역할 원고 15개는 subagents/*.toml에 있다.
+8개 스킬은 caseworker:issue 등의 명시 호출 또는 자연어로 선택한다. 역할 원고 15개는 subagents/*.toml에 있다.
 
 플러그인 설치만으로 훅이 신뢰되지는 않는다. Codex CLI에서 /hooks로 현재 정의를 검토하고 신뢰해야 한다. features.hooks=true도 필요하다. 설치 후 반드시 하네스 설정은 있고 상태 JSON은 없는 시험 브랜치에서 실제 shell 도구의 커밋을 시도하여 NO_STATE 차단을 확인한다. 스크립트 직접 실행은 런타임 훅 검증을 대신하지 않는다.
 

@@ -29,7 +29,7 @@
 
 ## grill
 
-`$caseworker:grilling` 을 그 자리에서 따른다 — 한 번에 한 질문, 선택지 2~4개, 화면·데이터가 갈리는 질문은 preview. 코드·문서로 답할 수 있는 것은 묻지 않고 한 줄 공유로 대신한다.
+`caseworker:grilling` 을 그 자리에서 따른다 — 한 번에 한 질문, 선택지 2~4개, 화면·데이터가 갈리는 질문은 preview. 코드·문서로 답할 수 있는 것은 묻지 않고 한 줄 공유로 대신한다.
 확정마다 `issue-set.mjs --decision "<질문>" "<답>"`. 끝나면 `issue-set.mjs --stage plan`.
 무인: 묻지 않고 권장안을 택하고 답 끝에 `(unattended)` 를 붙인다.
 
@@ -93,7 +93,7 @@
 2. `issue-complete.mjs [--dry-run] [--no-push] --json` — 전량 게이트·리뷰 신선도·작업트리 clean 을 다시 검사 → `git push -u origin <branch>` → 상태 JSON 을 `<runtime>/issues/archive/` 로 이동(stage `archived`) → `{code, branch, keys, pushed, archived_to, sidecars, tracker, summary}` 출력(`tracker` = 실행됐거나 라우터가 수행할 마감 op — 5번). CLAUDE.md 줄 수가 `wiki.claude_md_max_lines`(기본 150) 를 넘으면 거부한다 — closure 는 CHANGELOG·wiki 로 간다. `summary.timing`(start 기준 단계별 첫 도달 초 · 커밋 게이트 횟수 · 전량 게이트 시간)과 댓글의 `- 소요:` 줄이 **이슈마다 자동으로** 남는다 — 하네스가 실제로 시간을 줄이는지는 이 값을 이슈별로 모아 v2 기준선과 비교한다(`measure.py` 는 세션 단위라 이슈 단위 시간은 여기서만 나온다). 아카이브 뒤 같은 브랜치의 closure 문서 커밋(3번 wiki-row 결과·CHANGELOG)은 docs-only 로 통과한다 — `git add … && git commit` 한 명령이어도 스테이징 예정 파일로 판정한다. 코드 커밋은 `COMPLETED` 로 막힌다(다시 시작은 `issue-start.mjs <KEY> --adopt`).
    거부 코드는 훅과 같은 사다리(SKILL.md §3) 에 세 개가 더 있다: `CLAUDE_MD_TOO_LONG`(줄여서 재실행) · `BAD_STATE`(상태 JSON 이 스키마에 안 맞음 — `issue-set.mjs` 로 고치거나 `issue-start.mjs` 로 다시 만든다) · `PUSH_FAILED`(원격 거부 — 사유를 그대로 보고, 상태는 archive 로 옮기지 않는다).
 3. `wiki-row.mjs --index <wiki.index> --key <KEY> --set "<상태열>=closed" … --log <wiki.log> --event "<한 줄>" --phase closure` → `wiki-lint.mjs --docs <docs> [--memory <memory dir>] --root <프로젝트 루트>` 가 high 위반 0.
-4. 배운 것이 있으면 `$caseworker:kb-ingest` 로 wiki 종합 페이지 최대 `wiki.max_pages_per_closure` 장. 자동 메모리에 남길 것은 `memory-index.mjs --dir <memory dir> --add "<인덱스 한 줄>"`(본문 파일은 직접 쓴다).
+4. 배운 것이 있으면 `caseworker:kb-ingest` 로 wiki 종합 페이지 최대 `wiki.max_pages_per_closure` 장. 자동 메모리에 남길 것은 `memory-index.mjs --dir <memory dir> --add "<인덱스 한 줄>"`(본문 파일은 직접 쓴다).
 5. 출력의 `tracker` 블록을 start 와 같은 방식으로 처리한다([references/trackers.md](trackers.md)). direct(`applied:true`) 면 마감 op(전이 `done_status` + 마감 댓글)는 push·아카이브 뒤 **이미 실행됐다** — `result.ok === false` 인 것만 보고한다. router 면 `ops` 를 `op.tool` 대로 MCP 로 수행한다(키마다 전이 + 댓글). `--dry-run` 의 `tracker` 는 **계획**이다(`applied:false`) — 그때는 아무것도 수행하지 않는다.
 6. 출력의 `memory_candidate`(`<runtime>/memory-candidates/<slug>-<시각>.md`) 를 열어 **비자명한 배움만** 골라 4번의 메모리·wiki 로 승격한다. 후보 파일 자체는 runtime(gitignore) 에 남는다 — 통째로 옮기지 않는다.
 7. 보고: 브랜치·push 여부·게이트 분모·리뷰 결과·사람이 할 일(main 머지는 사람 — 자동 머지 금지).

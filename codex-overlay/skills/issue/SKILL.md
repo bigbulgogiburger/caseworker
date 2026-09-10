@@ -5,7 +5,7 @@ description: >-
   개발 전 주기를 진행하는 라우터 — 브랜치·상태 JSON(start), 결정 인터뷰(grill), 계획 워크플로와 승인(plan),
   구현(implement), Codex+워크플로 리뷰(verify), 컴파일·테스트 게이트(gate), 훅이 판정하는 commit/push,
   마감(complete: push·wiki·트래커 전이).
-  사용자가 "$caseworker:issue KEY", "KEY 시작/착수/잡아줘", "이어서 해줘", "계획 세워줘", "리뷰 돌려줘",
+  사용자가 "caseworker:issue KEY", "KEY 시작/착수/잡아줘", "이어서 해줘", "계획 세워줘", "리뷰 돌려줘",
   "게이트/테스트 돌려줘", "커밋해줘", "push 해줘", "마무리/QA 넘겨줘/완료 처리" 라고 하거나, 현재 브랜치가
   이슈 브랜치(feat/KEY…)이면 반드시 이 스킬을 쓴다. 명시 호출이 없어도 이슈 키가 언급된 개발 요청이면
   이 스킬로 지금 어느 단계인지부터 정한다.
@@ -13,9 +13,9 @@ description: >-
 > Codex 질문: `request_user_input`은 해당 도구가 제공되는 Plan 모드에서만 사용한다. 현재 도구 스키마를 따른다. `preview` 필드는 없다. 다른 모드에서는 제공되는 비동기 질문 도구 또는 짧은 일반 질문을 사용한다. 승인과 선호도 질문을 구분하고, 무응답을 승인으로 간주하지 않는다.
 
 
-# $caseworker:issue — 이슈 라우터
+# caseworker:issue — 이슈 라우터
 
-`$caseworker:issue <KEY[,KEY…]> [--adopt] [--stage <단계>] [--unattended]`
+`caseworker:issue <KEY[,KEY…]> [--adopt] [--stage <단계>] [--unattended]`
 
 ## 0. 원칙 (왜 이렇게 나뉘어 있나)
 
@@ -34,7 +34,7 @@ node "<P>/scripts/issue-start.mjs" --status --json
 
 | `code` | 뜻 | 다음 |
 |--------|----|------|
-| `NO_HARNESS` | 이 저장소는 설정 전 | `$caseworker:setup` 을 안내하고 멈춘다 |
+| `NO_HARNESS` | 이 저장소는 설정 전 | `caseworker:setup` 을 안내하고 멈춘다 |
 | `OUTSIDE_PATTERN` | 이슈 브랜치가 아니다 | 키가 있으면 **start**(기본 브랜치에서 새 브랜치). 현재 브랜치를 그대로 쓰려면 `--adopt` |
 | `NO_STATE` | 이슈 브랜치인데 상태 없음 | **start** (`issue-start.mjs <KEY>` — 브랜치는 그대로 두고 상태만 만든다) |
 | `OK` | 진행 중 | 출력의 `stage`·`next` 대로 §2 의 그 단계부터. `--stage` 가 있으면 그 단계로 점프(뒤로 가는 재계획도 허용) |
@@ -49,7 +49,7 @@ node "<P>/scripts/issue-start.mjs" --status --json
 |-------|------|------------|--------|
 | start | 브랜치 채택/생성 · 상태 JSON · 트래커 착수(전이·댓글·본문 읽기) | `issue-start.mjs` + 트래커 op(출력 `tracker.ops` — direct 면 이미 실행됨, router 면 라우터가 MCP 로 수행) | grill (키 3개+ 또는 범위 불명이면 먼저 recon) |
 | recon | 결정 분기점만 찾는 정찰(선택) | 메인 또는 허용된 `spawn_agent` (recon 계약: references/stages.md) (sonnet) | grill |
-| grill | 분기점을 **한 번에 하나씩** 묻고 확정 | `$caseworker:grilling` 을 그 자리에서 따른다 | `issue-set.mjs --decision` · `--stage plan` |
+| grill | 분기점을 **한 번에 하나씩** 묻고 확정 | `caseworker:grilling` 을 그 자리에서 따른다 | `issue-set.mjs --decision` · `--stage plan` |
 | plan | dev-guide 초안 + 레인·DoD 설계 → **사용자 승인** | 메인 또는 허용된 `spawn_agent` (plan 계약: references/stages.md) → `issue-set.mjs --merge --from plan` → request_user_input | 승인 시 `.draft` 확정 · `wiki-row.mjs` forecast · `--stage implement` |
 | implement | 코드 작성 — 레인 1개면 메인 직접, 2개+면 워크플로 | 직접 / 메인 또는 허용된 `spawn_agent` (implement 계약: references/stages.md) | verify |
 | verify | **Codex 판정** → (Codex 가 못 채운 자리에만) 워크플로 ≤4레인 → **메인이 확정/기각** → 기록 | `codex-review.sh` → `lanes-codex.mjs verify` → `issue-set.mjs --review` | gate |
@@ -70,7 +70,7 @@ node "<P>/scripts/issue-start.mjs" --status --json
 | `NO_REVIEW` `REVIEW_STALE` | 리뷰 없음 · 리뷰 이후 코드 변경 | verify — 이미 한 번 했으면 **델타 패스**만 |
 | `REVIEW_BLOCKERS` | 확정 blocker 미해결 | 수정 → 델타 패스 |
 | `BAD_STATE` | 상태 JSON 이 스키마에 안 맞는다(손으로 고친 흔적) | `issue-set.mjs` 로 값을 고치거나 `issue-start.mjs <KEY>` 로 다시 만든다 |
-| `BAD_CONFIG` `HOOK_ERROR` | harness.json 이 스키마에 안 맞거나 판정 중 예외(fail-closed). 명령의 `cd`/`-C` 가 없는 경로를 가리켜도 여기다 | 코드 문제가 아니다 — `$caseworker:setup` 으로 설정을 고친다(우회 금지). "판정할 디렉토리가 없다" 면 `cd` 를 변수·`~` 가 아닌 실제 경로로 |
+| `BAD_CONFIG` `HOOK_ERROR` | harness.json 이 스키마에 안 맞거나 판정 중 예외(fail-closed). 명령의 `cd`/`-C` 가 없는 경로를 가리켜도 여기다 | 코드 문제가 아니다 — `caseworker:setup` 으로 설정을 고친다(우회 금지). "판정할 디렉토리가 없다" 면 `cd` 를 변수·`~` 가 아닌 실제 경로로 |
 
 `issue-complete.mjs` 는 같은 사다리에 `CLAUDE_MD_TOO_LONG`·`PUSH_FAILED` 를 더한다(stages.md §complete). `DOCS_ONLY`·`MODE_OFF`·suggest 경고는 통과다. docs-only 는 `git add … && git commit` · `commit -a` 처럼 한 명령이 스테이징까지 하면 스테이징 *예정* 파일(staged+unstaged+untracked)로 판정한다 — 훅은 명령 실행 *전*에 보므로 그때 인덱스는 비어 있다. 훅을 우회하려고 `--no-verify` 나 상태 JSON 편집을 쓰지 않는다 — 막힌 이유를 고치는 것이 항상 더 짧다.
 
@@ -81,7 +81,7 @@ node "<P>/scripts/issue-start.mjs" --status --json
 - **트래커가 router 인데 MCP 가 없는 세션**: 코드 진행은 그대로 한다. `tracker.ops`(전이·댓글)를 수행하지 못했다는 사실을 보고에 "트래커 미반영: `<KEY>` transition(…) — MCP 도구 없음" 으로 남기고, 사람이 직접 처리하거나 MCP 연결 후 재실행하게 한다. 수행하지 못한 op 를 "완료" 로 적지 않는다.
 - **다중 키** `HX-a3f8,HX-b2c1`(jira 면 `ABC-696,ABC-940`): 브랜치 `feat/HX-a3f8-b2c1` 하나, dev-guide 한 장, 상태 JSON 하나. 트래커 op 는 키마다 만들어진다.
 - **worktree**: 어느 worktree 에서 실행해도 상태·로그는 메인 저장소의 runtime 에 쓰인다 — 같은 브랜치의 게이트 기록을 worktree 와 메인이 공유한다.
-- `harness.json` 의 게이트 명령이 틀렸으면 이 스킬에서 고치지 않는다 — `$caseworker:setup` 의 일이다.
+- `harness.json` 의 게이트 명령이 틀렸으면 이 스킬에서 고치지 않는다 — `caseworker:setup` 의 일이다.
 
 ## 5. 멈출 때마다 보고 (5줄 이내)
 
