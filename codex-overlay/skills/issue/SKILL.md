@@ -51,7 +51,7 @@ node "<P>/scripts/issue-start.mjs" --status --json
 | recon | 결정 분기점만 찾는 정찰(선택) | 메인 또는 허용된 `spawn_agent` (recon 계약: references/stages.md) (sonnet) | grill |
 | grill | 분기점을 **한 번에 하나씩** 묻고 확정 | `caseworker:grilling` 을 그 자리에서 따른다 | `issue-set.mjs --decision` · `--stage plan` |
 | plan | dev-guide 초안 + 레인·DoD 설계 → **사용자 승인** | 메인 또는 허용된 `spawn_agent` (plan 계약: references/stages.md) → `issue-set.mjs --merge --from plan` → request_user_input | 승인 시 `.draft` 확정 · `wiki-row.mjs` forecast · `--stage implement` |
-| implement | 코드 작성 — 레인 1개면 메인 직접, 2개+면 워크플로 | 직접 / 메인 또는 허용된 `spawn_agent` (implement 계약: references/stages.md) | verify |
+| implement | 코드 작성 — 레인 1개면 메인 직접. 2개+ 는 **Herdr 안 + `herdr.lanes` 가 `implement`/`all`** 이면 레인마다 worktree + kind(claude·codex·grok) pane 이 driver 옆에서 고치고 메인이 패치를 회수·적용, Herdr 밖이면 메인 순차(또는 허용된 `spawn_agent`) | 직접 / `herdr-lanes.mjs implement`([herdr-lanes.md](references/herdr-lanes.md) §implement) / `spawn_agent` (implement 계약: references/stages.md) | verify |
 | verify | **Codex 판정** → (Codex 가 못 채운 자리에만) 워크플로 ≤4레인 → **메인이 확정/기각** → 기록 | `codex-review.sh` → `lanes-codex.mjs verify` → `issue-set.mjs --review` | gate |
 | gate | 커밋 전 경량(컴파일·린트·DoD) / push 전 전량(빌드·테스트·extra) | `gate.mjs --commit` / `gate.mjs --full` | commit / push |
 | commit·push | 평소처럼 `git commit` / `git push` — 훅이 판정 | 훅 (`hooks/hooks.json`) · 무인은 `safe-commit.mjs` | 다음 구현 또는 complete |
@@ -77,7 +77,7 @@ node "<P>/scripts/issue-start.mjs" --status --json
 ## 4. 변형
 
 - **`--unattended`(무인)**: request_user_input 을 부르지 않고 권장안을 택한다(결정·승인에 `(unattended)` 표기). 사람 게이트(human DoD·머지)에 닿으면 멈추고 보고. 커밋은 `node "<P>/scripts/safe-commit.mjs" -m "<메시지>" [--push]` — 훅과 같은 판정을 스크립트가 하고 통과할 때만 커밋한다(훅이 발화하지 않는 헤드리스 경로에서도 같은 규율).
-- **Codex 위임**: 역할 원고는 `subagents/*.toml`의 `developer_instructions`다. 위임이 허용되면 `spawn_agent`에 원고와 범위·입출력 계약을 전달하고, 아니면 메인이 순차 수행한다. 검증 레인은 `scripts/lanes-codex.mjs verify`가 `{findings, lanes, dropped, delta}`를 반환한다. 실패 레인은 검증 완료로 세지 않는다.
+- **Codex 위임**: 역할 원고는 `subagents/*.toml`의 `developer_instructions`다. 위임이 허용되면 `spawn_agent`에 원고와 범위·입출력 계약을 전달하고, 아니면 메인이 순차 수행한다. 검증 레인은 `scripts/lanes-codex.mjs verify`가 `{findings, lanes, dropped, delta}`를 반환한다. 실패 레인은 검증 완료로 세지 않는다. **구현 레인은 Herdr 안이면 `scripts/herdr-lanes.mjs implement`** 가 레인마다 worktree + kind pane 을 띄우고 패치를 회수한다(Node 스크립트라 Codex 에서도 그대로 돈다) — Herdr 밖이면 메인이 순차 구현한다.
 - **트래커가 router 인데 MCP 가 없는 세션**: 코드 진행은 그대로 한다. `tracker.ops`(전이·댓글)를 수행하지 못했다는 사실을 보고에 "트래커 미반영: `<KEY>` transition(…) — MCP 도구 없음" 으로 남기고, 사람이 직접 처리하거나 MCP 연결 후 재실행하게 한다. 수행하지 못한 op 를 "완료" 로 적지 않는다.
 - **다중 키** `HX-a3f8,HX-b2c1`(jira 면 `ABC-696,ABC-940`): 브랜치 `feat/HX-a3f8-b2c1` 하나, dev-guide 한 장, 상태 JSON 하나. 트래커 op 는 키마다 만들어진다.
 - **worktree**: 어느 worktree 에서 실행해도 상태·로그는 메인 저장소의 runtime 에 쓰인다 — 같은 브랜치의 게이트 기록을 worktree 와 메인이 공유한다.
