@@ -159,6 +159,15 @@ test('write: --marketplace/--plugin/--repo 지정', () => {
   assert.equal(settings.enabledPlugins['caseworker@team-mp'], true);
 });
 
+const MKT_FILE = join(HERE, '..', '..', '.claude-plugin', 'marketplace.json');
+test('marketplace.json 의 이름은 setup 이 프로젝트에 등록하는 마켓 이름(caseworker)과 같고 jira-harness 의 이름(bigbulgogiburger)이 아니다', { skip: !existsSync(MKT_FILE) && 'Codex 생성판에는 .claude-plugin 이 없다' }, () => {
+  // 같은 이름이면 한 PC 에서 두 마켓을 못 나란히 둔다(GitHub 소스는 거부, 디렉터리 소스는 먼저 추가한 마켓의 소스를 조용히 교체 — 2026-09-29 실측).
+  // setup 이 쓰는 `caseworker@caseworker` 도 이 이름이 맞아야 풀린다.
+  const mkt = JSON.parse(readFileSync(MKT_FILE, 'utf8'));
+  assert.equal(mkt.name, 'caseworker');
+  assert.ok(mkt.plugins.some(p => p.name === 'caseworker'));
+});
+
 test('write 거부: 기존과 다르면 diff 만 내고 덮어쓰지 않는다 — --force 로만 갱신', () => {
   const dir = makeRepo();
   const cfgFile = writeConfigFile(dir, validConfig());

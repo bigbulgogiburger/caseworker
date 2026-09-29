@@ -10,8 +10,10 @@
 
 ```bash
 claude plugin marketplace add bigbulgogiburger/caseworker
-claude plugin install caseworker@bigbulgogiburger
+claude plugin install caseworker@caseworker
 ```
+
+마켓플레이스 이름은 `caseworker` 입니다. [`jira-harness`](https://github.com/bigbulgogiburger/jira-harness) 의 마켓플레이스 이름(`bigbulgogiburger`)과 달라서 한 PC 에 둘 다 추가할 수 있습니다 — 같은 이름이면 두 번째 추가가 거부되거나 먼저 추가한 마켓의 소스가 바뀝니다.
 
 프로젝트에 붙이기:
 

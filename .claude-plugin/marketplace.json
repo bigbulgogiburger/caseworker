@@ -1,6 +1,6 @@
 {
-  "name": "bigbulgogiburger",
-  "description": "bigbulgogiburger's Claude Code plugins",
+  "name": "caseworker",
+  "description": "caseworker — issue-driven development harness for Claude Code",
   "owner": {
     "name": "bigbulgogiburger"
   },
