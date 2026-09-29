@@ -8,7 +8,7 @@
 |------|------|----------|------|
 | `branch-pattern` | 패턴 밖 브랜치(상태 JSON 없음)에서 코드 파일을 커밋 | exit ≠ 0, 사유 코드 `BRANCH_PATTERN` | 통과하거나 다른 코드면 `ok:false`(패턴이 너무 넓거나 docs_only 가 코드를 삼킨다) |
 | `commit-without-gate` | 상태 JSON 은 만들되 `gate.mjs` 를 돌리지 않고 `git commit --allow-empty -m probe` | exit ≠ 0, stderr 에 `[caseworker] git commit:` 로 시작하는 deny 사유 코드(`NO_GATE`/`DIRTY_TREE`/`NO_STATE` 등 — 실제로 막힌 코드를 그대로 기록) | deny 계열이 아니면 `ok:false` |
-| `powershell-commit-without-gate` | 위와 같은 상태에서 훅 이벤트의 `tool_name` 만 `PowerShell` 로 바꿔 같은 커밋 | 위와 같은 deny 사유 코드 | 통과하면 `ok:false` — 셸 툴 한쪽만 보는 훅은 다른 셸로 그냥 뚫린다(jira-harness 3.x 실측 구멍). `hooks.json` matcher 와 `commit-gate.mjs` 의 `SHELL_TOOLS` 가 같은 집합이어야 한다 |
+| `powershell-commit-without-gate` | 위와 같은 상태에서 훅 이벤트의 `tool_name` 만 `PowerShell` 로 바꿔 같은 커밋 | 위와 같은 deny 사유 코드 | 통과하면 `ok:false` — 셸 툴 한쪽만 보는 훅은 다른 셸로 그냥 뚫린다(jira-harness 3.x 실측 구멍). `hooks.json` matcher 와 gate-core 의 `SHELL_TOOLS` 가 같은 집합이어야 한다 |
 | `commit-after-gate` | `gate.mjs --commit` 실행 후 같은 커밋 재시도 | exit = 0, 커밋 생성됨 | 여전히 막히면 `ok:false`(게이트를 통과해도 훅이 풀리지 않는 사고) |
 | `push-without-full-gate` | 경량 게이트만 통과한 상태에서 `git push` | exit ≠ 0, stderr 에 `[caseworker] git push:` 로 시작하는 사유 코드(`GATE_LEVEL`/`GATE_STALE` 등) | 통과해버리면 `ok:false` |
 | `protected-file-edit` | `harness.json.protected` 첫 글롭에 맞는 파일에 `Edit` 훅 이벤트를 넣는다(`protect-gate.mjs`). protected 가 비어 있으면 clone 안에서만 임시 글롭을 심어 훅 자체를 본다 | deny, 사유 코드 `PROTECTED` | 통과하면 `ok:false` — 검증 자산·게이트 스크립트를 고쳐서 초록을 만드는 경로가 열려 있다. protected 가 비어 있었다면 `detail` 에 그 사실이 남는다 → 프로젝트에 실제 글롭(테스트·DoD probe 자산·`scripts/gate*`)을 심을 것 |

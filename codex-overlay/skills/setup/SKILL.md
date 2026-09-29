@@ -111,7 +111,7 @@ node "<P>/scripts/setup.mjs" inject --json
 |------|------|
 | `branch-pattern` | 패턴 밖 브랜치의 코드 커밋이 막히나 |
 | `commit-without-gate` | 게이트 없이 커밋이 막히나 |
-| `powershell-commit-without-gate` | **같은 커밋을 PowerShell 툴로 시도해도 막히나** — 셸 툴 한쪽만 보는 훅은 다른 셸로 그냥 뚫린다(실측 구멍). `hooks.json` matcher 와 `commit-gate.mjs` 의 `SHELL_TOOLS` 가 같은 집합이어야 통과한다 |
+| `powershell-commit-without-gate` | **같은 커밋을 PowerShell 툴로 시도해도 막히나** — 셸 툴 한쪽만 보는 훅은 다른 셸로 그냥 뚫린다(실측 구멍). `hooks.json` matcher 와 gate-core 의 `SHELL_TOOLS` 가 같은 집합이어야 통과한다 |
 | `protected-file-edit` | **`harness.json.protected` 글롭의 파일을 Edit 로 고치려 하면 막히나**(`PROTECTED`) — 테스트·DoD 자산을 고쳐서 초록을 만드는 경로. protected 가 비어 있으면 임시 글롭으로 훅만 실측하고 `detail` 에 남긴다 |
 | `commit-after-gate` | 게이트를 통과한 뒤에는 실제로 풀리나(과차단 아님) |
 | `push-without-full-gate` | 경량 게이트만으로 push 가 막히나 |
