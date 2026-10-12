@@ -1,15 +1,18 @@
 #!/usr/bin/env node
 // gate.mjs — 게이트 러너. 브랜치 상태 JSON 의 gate 기록을 쓰는 유일한 경로.
-//   --commit : 경량(건드린 스택의 compile·lint + DoD 프로브) — 목표 ≤ gate.commit_budget_s
-//   --full   : 전량(모든 스택의 compile·lint·build·test·extra + DoD 프로브) — push/complete 전제
+//   --commit : 경량(건드린 스택의 compile·lint) — 목표 ≤ gate.commit_budget_s. DoD 는 돌리지 않는다 — 커밋마다 DoD 를 전부 다시 돌린 것이
+//              경량 게이트 시간의 86%였다(jira-harness 3.9.0 실측: 171회 15.0시간 중 12.9시간). DoD 는 전량 게이트에서 한 번 돈다.
+//   --full   : 전량(DoD 프로브 → 모든 스택의 compile·lint·build·test·extra) — push/complete 전제.
+//              DoD 프로브가 하나라도 FAIL 이면 스택 단계를 건너뛰고 끝낸다 — 늦게 발견된 DoD 실패가 전체 테스트를 헛돌게 하지 않는다.
 // 옵션: --stage-all(git add -A 후 검증) · --dry-run(계획만) · --stacks a,b · --cwd <dir> · --json
+//      --full 의 --stacks 는 이 브랜치가 바꾼 스택을 뺄 수 없다(빼면 그 스택을 검증한 것처럼 기록이 남는다).
 // 지문 = 실행 전 인덱스 트리(런타임 경로 제외). 실행 중 인덱스가 바뀌면 기록하지 않는다.
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { locateProject, loadConfig, parseBranch, statePath, readState, writeState, stacksTouched } from './lib/config.mjs';
-import { currentBranch, git, stagedFiles, untrackedFiles, changedVsHead, pinRef } from './lib/git.mjs';
+import { locateProject, loadConfig, parseBranch, statePath, readState, writeState, stacksTouched, matchesAny } from './lib/config.mjs';
+import { currentBranch, git, stagedFiles, untrackedFiles, changedVsHead, branchChangedFiles, pinRef } from './lib/git.mjs';
 import { fingerprintTree } from './lib/tree.mjs';
 import { parseTestCount, stripAnsi } from './lib/probe.mjs';
 import { resolveShell as resolveShellLib } from './lib/shell.mjs';
@@ -72,11 +75,20 @@ const changed = [...new Set([...stagedFiles(root), ...changedVsHead(root), ...un
 const wanted = opt('--stacks') ? opt('--stacks').split(',').map(s => s.trim()).filter(Boolean) : null;
 let stackNames = wanted ?? (level === 'full' ? Object.keys(cfg.stacks) : stacksTouched(changed, cfg));
 for (const n of stackNames) if (!cfg.stacks[n]) fail(2, `알 수 없는 스택 "${n}" (harness.json.stacks: ${Object.keys(cfg.stacks).join(', ')})`);
+if (level === 'full' && wanted) {
+  // push·complete 는 전량 기록의 결과만 보고 어느 스택이 돌았는지는 보지 않는다 — 바뀐 스택을 뺀 --stacks 는 기록을 남기기 전에 여기서 막는다
+  const branchFiles = branchChangedFiles(root, cfg.default_branch);
+  if (!branchFiles) fail(2, `${cfg.default_branch} 와의 merge-base 를 못 구해 --stacks 를 검증할 수 없다 — --stacks 없이 돌릴 것`);
+  const code = [...branchFiles, ...changed].filter(p => !matchesAny(p, cfg.docs_only_paths));
+  const missing = stacksTouched(code, cfg).filter(n => !wanted.includes(n));
+  if (missing.length) fail(2, `--stacks 가 이 브랜치에서 바뀐 스택을 뺐다: ${missing.join(', ')} — 전량 게이트는 바뀐 스택을 모두 돌아야 한다(--stacks ${[...wanted, ...missing].join(',')} 또는 --stacks 없이)`);
+}
 const steps = level === 'full' ? ['compile', 'lint', 'build', 'test', 'extra'] : ['compile', 'lint'];
-// held_out 프로브는 full 에서만 돈다 — commit 게이트(maker 가 보는 축)에서는 SKIPPED 로 남겨 "본 적 없는 검증" 을 유지한다
-const probes = ((state && state.dod) || []).filter(d => d.probe && !d.human && (level === 'full' || !d.held_out));
-const heldOut = ((state && state.dod) || []).filter(d => d.probe && !d.human && d.held_out && level !== 'full');
-const humans = ((state && state.dod) || []).filter(d => d.human || !d.probe);
+// DoD 는 전량 게이트에서만 돈다 — 경량(커밋) 게이트는 compile·lint 만 본다. held_out 프로브도 그래서 commit 에서는 돌지 않는다("본 적 없는 검증")
+const dodItems = level === 'full' ? ((state && state.dod) || []) : [];
+const probes = dodItems.filter(d => d.probe && !d.human);
+const heldOut = level === 'full' ? [] : ((state && state.dod) || []).filter(d => d.probe && !d.human && d.held_out);
+const humans = dodItems.filter(d => d.human || !d.probe);
 
 if (flag('--dry-run')) {
   const plan = { level, branch, keys: parsed ? parsed.keys : [], changed_files: changed.length, stacks: Object.fromEntries(stackNames.map(n => [n, Object.fromEntries(steps.map(s => [s, cfg.stacks[n][s] ?? null]))])), dod_probes: probes.map(d => ({ id: d.id, probe: d.probe, cwd: d.cwd ?? null })), dod_held_out: heldOut.map(d => d.id), dod_human: humans.map(d => d.id), shell: resolveShell(cfg).name };
@@ -99,32 +111,9 @@ const results = { compile: 'NOT_RUN', lint: 'NOT_RUN', build: 'NOT_RUN', test: '
 const perKey = { compile: [], lint: [], build: [], test: [], extra: [] };
 const stacksOut = {};
 
-for (const name of stackNames) {
-  const s = cfg.stacks[name];
-  const dir = resolve(root, s.dir);
-  const env = { ...process.env, ...loadEnvFile(configRoot, s.env_file), CASEWORKER_GATE: level };
-  stacksOut[name] = {};
-  for (const step of steps) {
-    const cmds = step === 'extra' ? (s.extra ?? []) : (s[step] ? [s[step]] : []);
-    if (!cmds.length) { stacksOut[name][step] = 'SKIPPED'; perKey[step].push('SKIPPED'); continue; }
-    let verdict = 'PASS';
-    for (const cmd of cmds) {
-      console.error(`[gate] ${name}.${step}: ${cmd}`);
-      const r = runCmd(shell, cmd, { cwd: dir, env, timeoutS: cfg.gate.timeout_s });
-      logChunks.push(`\n## ${name}.${step} $ ${cmd}\n## exit=${r.status} ${r.seconds}s${r.timedOut ? ' TIMEOUT' : ''}${r.error ? ' error=' + r.error : ''}\n${r.out.length > 200_000 ? r.out.slice(0, 200_000) + '\n…(truncated)' : r.out}\n`);
-      if (r.status !== 0) { verdict = 'FAIL'; console.error(`[gate] ${name}.${step} FAIL (exit ${r.status}${r.timedOut ? ', timeout' : ''})`); break; }
-    }
-    stacksOut[name][step] = verdict;
-    perKey[step].push(verdict);
-  }
-}
-for (const step of steps) {
-  const vs = perKey[step];
-  results[step] = vs.includes('FAIL') ? 'FAIL' : vs.includes('PASS') ? 'PASS' : 'SKIPPED';
-}
-
-// DoD 프로브
+// DoD 프로브 — 스택 단계보다 먼저(경량 게이트는 DoD 가 없어 probes 가 비어 있다)
 let dodPass = 0, dodFail = 0;
+const judgedNow = new Set(); // 이번 실행이 판정한 DoD 항목 — 상태에 얹는 것은 이것뿐이다
 for (const d of probes) {
   const dir = resolve(root, d.cwd ?? '.');
   console.error(`[gate] dod ${d.id}: ${d.probe}`);
@@ -140,11 +129,44 @@ for (const d of probes) {
   }
   d.last = reasons.length ? 'FAIL' : 'PASS';
   d.at = nowIso();
+  judgedNow.add(d.id);
   if (d.last === 'PASS') dodPass++; else dodFail++;
   logChunks.push(`\n## dod ${d.id} $ ${d.probe}\n## exit=${r.status} ${r.seconds}s → ${d.last}${reasons.length ? ' (' + reasons.join('; ') + ')' : ''}\n${r.out.slice(0, 200_000)}\n`);
 }
-results.dod = dodFail ? 'FAIL' : dodPass ? 'PASS' : 'SKIPPED';
-const dodSummary = `${dodPass}/${probes.length}${humans.length ? ` (human ${humans.length} 제외)` : ''}${heldOut.length ? ` (held-out ${heldOut.length} 은 full 에서만)` : ''}`;
+// 프로브가 하나라도 FAIL 이면 스택 단계를 건너뛴다 — 고친 뒤 어차피 전량을 다시 돌아야 하니 이번 빌드·전체 테스트는 헛돈다
+const probeFailed = dodFail > 0;
+if (probeFailed) {
+  console.error(`[gate] DoD 프로브 FAIL ${dodFail}건 — 스택 단계(빌드·전체 테스트)를 건너뛴다`);
+  logChunks.push(`\n## 스택 단계 건너뜀 — DoD 프로브 FAIL ${dodFail}건을 먼저 고칠 것\n`);
+}
+
+for (const name of stackNames) {
+  const s = cfg.stacks[name];
+  const dir = resolve(root, s.dir);
+  const env = { ...process.env, ...loadEnvFile(configRoot, s.env_file), CASEWORKER_GATE: level };
+  stacksOut[name] = {};
+  for (const step of steps) {
+    if (probeFailed) { stacksOut[name][step] = 'NOT_RUN'; continue; }
+    const cmds = step === 'extra' ? (s.extra ?? []) : (s[step] ? [s[step]] : []);
+    if (!cmds.length) { stacksOut[name][step] = 'SKIPPED'; perKey[step].push('SKIPPED'); continue; }
+    let verdict = 'PASS';
+    for (const cmd of cmds) {
+      console.error(`[gate] ${name}.${step}: ${cmd}`);
+      const r = runCmd(shell, cmd, { cwd: dir, env, timeoutS: cfg.gate.timeout_s });
+      logChunks.push(`\n## ${name}.${step} $ ${cmd}\n## exit=${r.status} ${r.seconds}s${r.timedOut ? ' TIMEOUT' : ''}${r.error ? ' error=' + r.error : ''}\n${r.out.length > 200_000 ? r.out.slice(0, 200_000) + '\n…(truncated)' : r.out}\n`);
+      if (r.status !== 0) { verdict = 'FAIL'; console.error(`[gate] ${name}.${step} FAIL (exit ${r.status}${r.timedOut ? ', timeout' : ''})`); break; }
+    }
+    stacksOut[name][step] = verdict;
+    perKey[step].push(verdict);
+  }
+}
+if (!probeFailed) for (const step of steps) {
+  const vs = perKey[step];
+  results[step] = vs.includes('FAIL') ? 'FAIL' : vs.includes('PASS') ? 'PASS' : 'SKIPPED';
+}
+
+if (level === 'full') results.dod = dodFail ? 'FAIL' : dodPass ? 'PASS' : 'SKIPPED';
+const dodSummary = level === 'full' ? `${dodPass}/${probes.length}${humans.length ? ` (human ${humans.length} 제외)` : ''}` : '전량 게이트에서';
 
 // 로그 기록
 const logDir = join(configRoot, cfg.runtime_dir, 'gate');
@@ -158,22 +180,31 @@ const logRel = relative(configRoot, logPath).replace(/\\/g, '/');
 const tree2 = fingerprintTree({ cwd: root, base: 'index', excludes: cfg.fingerprint_exclude });
 if (tree2 !== tree) fail(1, `게이트 실행 중 인덱스가 바뀌었다(${tree.slice(0, 12)} → ${tree2.slice(0, 12)}) — 기록하지 않음. 재실행할 것`);
 
-const overallKeys = level === 'full' ? ['compile', 'lint', 'build', 'test', 'extra', 'dod'] : ['compile', 'lint', 'dod'];
+const overallKeys = level === 'full' ? ['compile', 'lint', 'build', 'test', 'extra', 'dod'] : ['compile', 'lint'];
 const overall = overallKeys.every(k => OKSET.has(results[k])) ? 'PASS' : 'FAIL';
 const at = nowIso();
 const duration_s = +((Date.now() - t0) / 1000).toFixed(1);
-state.gate = {
+// 쓰기 직전에 다시 읽고 게이트 몫(gate · history · DoD 판정)만 얹는다 — 게이트가 도는 동안 다른 경로(issue-set --review 등)가 상태를 고쳤을 수 있고,
+// 시작 때 읽은 사본을 통째로 쓰면 그 기록이 사라진다(jira-harness 3.7.0 실측: 94분 전량 게이트 도중 기록한 델타 리뷰가 게이트 종료와 함께 지난 기록으로 되돌아가 훅이 REVIEW_STALE)
+const latest = readState(sPath) ?? state;
+// 얹는 것은 이번 실행이 판정한 항목뿐이고, 판정한 뒤 그 항목의 검사 자체가 바뀌었으면(plan 재병합 등) 옛 판정을 얹지 않는다
+const judged = new Map((state.dod ?? []).filter(d => judgedNow.has(d.id)).map(d => [d.id, d]));
+for (const d of latest.dod ?? []) {
+  const j = judged.get(d.id);
+  if (j && (j.probe ?? null) === (d.probe ?? null)) { d.last = j.last; d.at = j.at; }
+}
+latest.gate = {
   level, tree, results, stacks: stacksOut, dod: dodSummary,
   log: logRel, log_sha256: sha256(Buffer.from(logText, 'utf8')), duration_s, at,
   full_at: level === 'full' ? at : (prev && prev.tree === tree ? prev.full_at ?? null : null),
 };
-state.history = [...(state.history ?? []), { stage: 'gate', at, note: `${level} ${overall} ${duration_s}s` }];
-writeState(sPath, state);
+latest.history = [...(latest.history ?? []), { stage: 'gate', at, note: `${level} ${overall} ${duration_s}s` }];
+writeState(sPath, latest);
 try { pinRef(`refs/harness/${parsed.slug}/gate`, tree, root); } catch (e) { console.error(`[gate] ref 고정 실패(무시): ${e.message}`); }
 // Herdr 사이드바·알림(Herdr 밖이면 무동작). FAIL 은 사람을 부르고(request), 전량 PASS 는 끝났다고 알린다(done).
 herdrPing(cwd, `gate ${level} ${overall}`, overall === 'FAIL'
-  ? { title: `${state.keys.join(',')} gate ${level} FAIL`, body: Object.entries(results).filter(([, v]) => v === 'FAIL').map(([k]) => k).join(', ') || 'FAIL', sound: 'request' }
-  : level === 'full' ? { title: `${state.keys.join(',')} gate full PASS`, body: `${duration_s}s · push 가능`, sound: 'done' } : null);
+  ? { title: `${latest.keys.join(',')} gate ${level} FAIL`, body: Object.entries(results).filter(([, v]) => v === 'FAIL').map(([k]) => k).join(', ') || 'FAIL', sound: 'request' }
+  : level === 'full' ? { title: `${latest.keys.join(',')} gate full PASS`, body: `${duration_s}s · push 가능`, sound: 'done' } : null);
 
 const summary = { level, overall, tree, results, stacks: stacksOut, dod: dodSummary, duration_s, log: logRel, state: relative(configRoot, sPath).replace(/\\/g, '/') };
 if (json) console.log(JSON.stringify(summary, null, 2));

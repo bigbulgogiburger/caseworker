@@ -196,7 +196,7 @@ test('protect 훅: protected 비어 있으면 통과 · mode=suggest 는 경고�
 
 // ---------------------------------------------------------------- gate held_out
 
-test('gate: held_out DoD 프로브는 --commit 에서 돌지 않고 full 에서만 돈다', () => {
+test('gate: held_out DoD 프로브는 --commit 에서 돌지 않고 full 에서만 돈다(commit 은 DoD 를 아예 돌리지 않는다)', () => {
   const dir = makeRepo();
   g(dir, 'checkout', '-q', '-b', 'feat/ABC-1');
   const st = newState('feat/ABC-1', ['ABC-1']);
@@ -209,16 +209,20 @@ test('gate: held_out DoD 프로브는 --commit 에서 돌지 않고 full 에서�
   const dry = sh(NODE, [join(SCRIPTS, 'gate.mjs'), '--commit', '--dry-run', '--json', '--cwd', dir], dir);
   assert.equal(dry.status, 0, dry.stderr);
   const plan = JSON.parse(dry.stdout);
-  assert.deepEqual(plan.dod_probes.map(d => d.id), ['visible']);
+  assert.deepEqual(plan.dod_probes, []);
   assert.deepEqual(plan.dod_held_out, ['hidden']);
   const full = sh(NODE, [join(SCRIPTS, 'gate.mjs'), '--full', '--dry-run', '--json', '--cwd', dir], dir);
   const fplan = JSON.parse(full.stdout);
   assert.deepEqual(fplan.dod_probes.map(d => d.id).sort(), ['hidden', 'visible']);
   assert.deepEqual(fplan.dod_held_out, []);
-  // 실제 실행: commit 게이트 뒤 hidden 은 PENDING 그대로
+  // 실제 실행: commit 게이트 뒤 둘 다 판정 없음 → full 에서 처음 돈다
   const run = sh(NODE, [join(SCRIPTS, 'gate.mjs'), '--commit', '--json', '--cwd', dir], dir);
   assert.equal(run.status, 0, run.stderr);
-  const after = readState(sPath);
-  assert.equal(after.dod.find(d => d.id === 'visible').last, 'PASS');
+  let after = readState(sPath);
+  assert.notEqual(after.dod.find(d => d.id === 'visible').last, 'PASS');
   assert.notEqual(after.dod.find(d => d.id === 'hidden').last, 'PASS');
+  const frun = sh(NODE, [join(SCRIPTS, 'gate.mjs'), '--full', '--json', '--cwd', dir], dir);
+  assert.equal(frun.status, 0, frun.stderr);
+  after = readState(sPath);
+  assert.deepEqual(after.dod.map(d => d.last), ['PASS', 'PASS']);
 });

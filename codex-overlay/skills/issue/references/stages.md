@@ -72,11 +72,12 @@
 
 ## gate
 
-- 커밋 전 `gate.mjs --commit [--stage-all]` — 컴파일·린트·DoD 프로브, **건드린 스택만**. 목표 `gate.commit_budget_s`(기본 3분).
-- push·complete 전 `gate.mjs --full` — 빌드·전체 테스트·extra(프로젝트 정적 게이트 등). 9~15분이면 Bash `run_in_background` 로 돌리고 알림을 기다린다(폴링하지 않는다).
+- 커밋 전 `gate.mjs --commit [--stage-all]` — 컴파일·린트, **건드린 스택만**. DoD 는 돌리지 않는다(커밋마다 DoD 를 다시 돌린 것이 경량 게이트 시간의 86%였다). 목표 `gate.commit_budget_s`(기본 3분). 구현 중 새 테스트가 도는지는 관련 테스트만 직접 돌려 본다.
+- push·complete 전 `gate.mjs --full` — **DoD 프로브를 먼저** 돌리고, 하나라도 FAIL 이면 스택 단계를 건너뛰고 끝난다(프로브를 고친 뒤 다시). 통과하면 빌드·전체 테스트·extra(프로젝트 정적 게이트 등). 9~15분이면 Bash `run_in_background` 로 돌리고 알림을 기다린다(폴링하지 않는다).
+- `--full --stacks a,b` 로 스택을 줄일 수 있지만 **이 브랜치가 바꾼 스택은 뺄 수 없다**(exit 2) — 기록은 결과만 남고 어느 스택이 돌았는지는 push·complete 가 다시 보지 않기 때문이다. 다른 스택의 파일을 읽는 테스트가 있으면 그 경로를 그 스택의 `stacks.<name>.paths` 에 넣어 둔다.
 - **Herdr 안이면** 게이트를 runner pane 에서 돌린다 — `node "<P>/scripts/herdr-lanes.mjs" gate --full|--commit [--stage-all] [--no-wait] --cwd <루트> --json`. 로그가 driver 컨텍스트 밖(pane)에 남고, 기록·토스트는 gate.mjs 가 그대로 한다. `--no-wait` 면 바로 돌아오고 완료 토스트(전량 PASS=done · FAIL=request)를 기다린다. 결과 JSON 은 출력의 `out`.
 - 같은 트리에 전량 통과 기록이 이미 있으면 `--commit` 은 재실행을 생략한다.
-- DoD `held_out:true` 프로브는 `--commit` 에서 돌지 않고 `--full` 에서만 돈다 — 구현 레인이 통과 조건을 보고 맞추지 못하게 하는 검증. 구현 프롬프트에 그 프로브 명령을 싣지 않는다.
+- DoD `held_out:true` 프로브는 구현 레인이 통과 조건을 보고 맞추지 못하게 하는 검증이다 — 구현 프롬프트에 그 프로브 명령을 싣지 않는다(게이트에서는 모든 DoD 가 `--full` 에서만 돈다).
 - `harness.json.protected[]` 글롭(테스트·DoD 자산·게이트 스크립트)은 `protect-gate` 훅이 Edit/Write 를 막는다. 정말 바꿔야 하면 글롭을 빼는 설정 변경을 diff 에 남긴다.
 - DoD `human:true` 는 게이트가 SKIPPED 로 남긴다 — 보고에 "사람 확인 필요 N건" 을 적는다. `expect.min_tests` 는 실행 건수 0 을 FAIL 로 본다(초록이 "검사 0" 인지 "위반 0" 인지 구분하기 위해). 건수는 러너 요약 줄(`Tests N passed`·`N tests completed`·`Tests run: N`)이나 숫자 한 줄에서 읽고 색상 코드는 벗긴다. 건수를 출력하지 않는 sentinel 프로브(위반 주입·존재 검사·lint 문구)에는 `min_tests` 를 두지 않는다 — 두면 "분모 미확인" 으로 상시 FAIL 이다.
 - FAIL 이면 `<runtime>/gate/<slug>-<level>-<시각>.log` 를 읽고 코드를 고친 뒤 재실행. 게이트 명령을 바꾸거나 테스트를 지워서 통과시키지 않는다.

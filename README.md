@@ -83,7 +83,7 @@ Codex 저장소 두 곳은 생성물이라 **거기서 고친 것은 다음 생�
 | `hooks/hooks.json` → `scripts/protect-gate.mjs` | PreToolUse 훅(Edit/Write) — `harness.json.protected[]` 글롭의 파일(테스트·DoD 자산·게이트 스크립트)은 편집을 막는다. 검증 자산을 고쳐서 초록을 만드는 경로 차단 |
 | `skills/loop` · `scripts/loop.mjs` · `scripts/stop-loop.mjs` | 완성도 루프 — 0~100 점수로 측정→triage→fix→verify→재채점. 장부·STOP/ESCALATE 판정·상한(caps)·서킷브레이커는 스크립트가 계산하고, 무인 라운드는 Stop 훅이 되먹인다(세션 격리). `.loop/loop.json` |
 | `skills/graph` · `scripts/graph.mjs` | 이슈 그래프 — 의존 파도(위상정렬)·병렬 레인 파일 겹침 검사·claim·lint·ADR 반전 타임라인 |
-| `scripts/gate.mjs` | 경량(컴파일·린트·DoD) / 전량(빌드·테스트·extra) 게이트 러너 — 트리 id 와 로그 sha256 을 기록 |
+| `scripts/gate.mjs` | 경량(컴파일·린트) / 전량(DoD 프로브 → 빌드·테스트·extra) 게이트 러너 — DoD 는 전량에서만 돌고, 프로브가 하나라도 FAIL 이면 스택 단계를 건너뛴다 · `--full --stacks` 는 브랜치가 바꾼 스택을 뺄 수 없다 · 트리 id 와 로그 sha256 을 기록 |
 | `scripts/issue-start.mjs` `issue-set.mjs` `issue-complete.mjs` | 브랜치·상태 JSON 생명주기 + 트래커 op(착수/마감) |
 | `scripts/cases.mjs` | 트래커 CLI — direct 어댑터의 이슈를 세션 밖에서도 만들고 읽는다(`new`/`show`/`list`/`comment`/`status`/`link`/`progress`, `--json`) |
 | `scripts/safe-commit.mjs` | 훅이 발화하지 않는 경로(헤드리스·무인)에서 같은 판정 후 커밋 |
