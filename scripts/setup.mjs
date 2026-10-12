@@ -489,7 +489,8 @@ const V2_RUNTIME_GLOBS = [/^sprint-contract.*$/, /^workflow-state.*\.json$/, /^a
 
 function archiveTarget(root, relPath) {
   // .claude/runtime/x → .claude/runtime/archive/v2/runtime/x (원래 상대 구조를 보존한 채 이동)
-  const underClaude = relPath.replace(/^\.claude\//, '');
+  // 정규식은 Codex 판 생성기의 치환을 타지 않는다 — Codex 판 경로의 .codex/ 도 여기서 벗긴다
+  const underClaude = relPath.replace(/^\.(claude|codex)\//, '');
   return join(root, '.claude/runtime/archive/v2', underClaude);
 }
 
